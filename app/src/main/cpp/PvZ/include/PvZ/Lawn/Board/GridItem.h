@@ -102,6 +102,7 @@ public:
     void DrawGridItem(Sexy::Graphics *g);
     void DrawScaryPot(Sexy::Graphics *g);
     void Update();
+    void UpdateMPGraveStone();
     void UpdateScaryPot();
     void UpdateBurialMound();
     void UpdatePole();
