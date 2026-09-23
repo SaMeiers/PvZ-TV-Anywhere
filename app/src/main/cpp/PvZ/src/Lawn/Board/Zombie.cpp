@@ -5497,11 +5497,21 @@ void Zombie::StartEating() {
         }
 
         if (IsRemoteServer()) {
-            U16UNI32_Event event{};
-            event.type = EventType::EVENT_SERVER_BOARD_ZOMBIE_START_EATING;
-            event.data1 = uint16_t(mBoard->mZombies.DataArrayGetID(this));
-            event.data2.f32 = mPosX;
-            netplay::PutEvent(event);
+            const auto syncEatingPosition = [this](Zombie *theZombie) {
+                U16UNI32_Event event{};
+                event.type = EventType::EVENT_SERVER_BOARD_ZOMBIE_START_EATING;
+                event.data1 = uint16_t(mBoard->mZombies.DataArrayGetID(theZombie));
+                event.data2.f32 = theZombie->mPosX;
+                netplay::PutEvent(event);
+            };
+            syncEatingPosition(this);
+
+            if (mZombieType == ZombieType::ZOMBIE_DOGWALKER || mZombieType == ZombieType::ZOMBIE_DOG) {
+                Zombie *aPartner = GetDogPartner();
+                if (aPartner != nullptr && aPartner->mHasHead && !aPartner->IsDeadOrDying() && aPartner->mMindControlled == mMindControlled) {
+                    syncEatingPosition(aPartner);
+                }
+            }
         }
     }
 
