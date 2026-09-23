@@ -1,15 +1,29 @@
 <div align="center">
 
-# PlantsVsZombies AndroidTV
+# PvZ TV Anywhere
 
 **English** | **[简体中文](./README.zh-cn.md)**
 
-[![license](https://img.shields.io/github/license/ZombieYetis/PlantsVsZombies-AndroidTV)][GPL-3.0]
-[![Android CI](https://github.com/ZombieYetis/PlantsVsZombies-AndroidTV/actions/workflows/android.yml/badge.svg)](https://github.com/ZombieYetis/PlantsVsZombies-AndroidTV/actions/workflows/android.yml "Android CI")
+[![license](https://img.shields.io/github/license/SaMeiers/PvZ-TV-Anywhere)][GPL-3.0]
+[![Android CI](https://github.com/SaMeiers/PvZ-TV-Anywhere/actions/workflows/android.yml/badge.svg)](https://github.com/SaMeiers/PvZ-TV-Anywhere/actions/workflows/android.yml "Android CI")
+[![Desktop CI](https://github.com/SaMeiers/PvZ-TV-Anywhere/actions/workflows/desktop.yml/badge.svg)](https://github.com/SaMeiers/PvZ-TV-Anywhere/actions/workflows/desktop.yml "Desktop CI")
 
-A mod of _Plants vs. Zombies_ Android TV version.
+A mod of _Plants vs. Zombies_ Android TV version, playable beyond the devices it
+was built for: on 64-bit-only phones and on PC.
 
 </div>
+
+## About this project
+
+This is a fork of [PlantsVsZombies-AndroidTV](https://github.com/ZombieYetis/PlantsVsZombies-AndroidTV)
+by ZombieYetis, whose work is the mod itself and everything under `app/`. The
+game ships as 32-bit ARM libraries, and newer cores (Cortex-A715/X4 and up) no
+longer run 32-bit code at all, so this fork adds a *runner*: the original
+libraries are mapped into a guest address space and executed on a Dynarmic
+ARM32 JIT. The same runner gives the game a desktop build.
+
+Upstream declined to take the runner, so it lives here. Everything remains
+GPL-3.0; see [Architecture](./ARCHITECTURE.md) for how it works.
 
 ## Build
 
@@ -20,7 +34,7 @@ A mod of _Plants vs. Zombies_ Android TV version.
 
 - Clone the repository **with its submodules** (they carry dynarmic, SDL, zlib and glad).
     ```sh
-    git clone --recursive https://github.com/ZombieYetis/PlantsVsZombies-AndroidTV.git
+    git clone --recursive https://github.com/SaMeiers/PvZ-TV-Anywhere.git
     cd PlantsVsZombies-AndroidTV
     ```
     > Already cloned without `--recursive`? Run `git submodule update --init --recursive`.

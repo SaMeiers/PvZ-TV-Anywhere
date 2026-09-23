@@ -1,15 +1,28 @@
 <div align="center">
 
-# PlantsVsZombies AndroidTV
+# PvZ TV Anywhere
 
 **[English](./README.md)** | **简体中文**
 
-[![license](https://img.shields.io/github/license/ZombieYetis/PlantsVsZombies-AndroidTV)][GPL-3.0]
-[![Android CI](https://github.com/ZombieYetis/PlantsVsZombies-AndroidTV/actions/workflows/android.yml/badge.svg)](https://github.com/ZombieYetis/PlantsVsZombies-AndroidTV/actions/workflows/android.yml "Android CI")
+[![license](https://img.shields.io/github/license/SaMeiers/PvZ-TV-Anywhere)][GPL-3.0]
+[![Android CI](https://github.com/SaMeiers/PvZ-TV-Anywhere/actions/workflows/android.yml/badge.svg)](https://github.com/SaMeiers/PvZ-TV-Anywhere/actions/workflows/android.yml "Android CI")
+[![Desktop CI](https://github.com/SaMeiers/PvZ-TV-Anywhere/actions/workflows/desktop.yml/badge.svg)](https://github.com/SaMeiers/PvZ-TV-Anywhere/actions/workflows/desktop.yml "Desktop CI")
 
-一个基于植物大战僵尸 TV 版的改版.
+一个基于植物大战僵尸 TV 版的改版, 并让它能在原本无法运行的地方游玩: 纯 64 位手机与 PC.
 
 </div>
+
+## 关于本项目
+
+本项目 fork 自 ZombieYetis 的
+[PlantsVsZombies-AndroidTV](https://github.com/ZombieYetis/PlantsVsZombies-AndroidTV),
+模组本身以及 `app/` 下的内容均出自该项目. 游戏本体是 32 位 ARM 库,
+而较新的核心 (Cortex-A715/X4 及以后) 已完全不再执行 32 位代码,
+因此本 fork 增加了一个 *runner*: 把原始库映射进 guest 地址空间,
+并在 Dynarmic 的 ARM32 JIT 上执行. 同一个 runner 也让游戏有了桌面版.
+
+上游不打算合入该 runner, 因此它留在这里. 全部代码仍为 GPL-3.0;
+工作原理详见[架构说明](./ARCHITECTURE.zh-cn.md).
 
 ## 构建
 
@@ -20,7 +33,7 @@
 
 - **连同子模块一起**克隆仓库 (子模块包含 dynarmic, SDL, zlib 和 glad).
     ```sh
-    git clone --recursive https://github.com/ZombieYetis/PlantsVsZombies-AndroidTV.git
+    git clone --recursive https://github.com/SaMeiers/PvZ-TV-Anywhere.git
     cd PlantsVsZombies-AndroidTV
     ```
     > 如果克隆时忘了加 `--recursive`, 执行 `git submodule update --init --recursive`.
