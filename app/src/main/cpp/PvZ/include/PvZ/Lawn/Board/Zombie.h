@@ -400,6 +400,7 @@ public:
     void ExplorerTorchConvert(bool theBurn);
     void UpdateGigaGargantuar();
     void InterruptLightning();
+    void InterruptSuperNovaDestroy();
     void UpdateGigaImp();
     Zombie *GetDogPartner() const;
     void CheckDogPartnerDeath();
@@ -407,8 +408,23 @@ public:
     void UpdateDogWalker();
     void UpdateZombieDog();
     void UpdateZombieTeleportation();
+    void UpdateSuperNovaGargantuar();
+    void UpdateZombieCrossingGuard();
+    void UpdateZombieScientist();
+    bool IsInScientistTargetRange(const Sexy::Rect &theTargetRect, int theTargetRow, int theRangeInset);
+    bool HasScientistTriggerTarget();
+    void ApplyScientistSpray();
+    bool ApplyScientistHealing();
+    void SetScientistPhase(ZombiePhase thePhase);
     bool FindTeleportationTarget();
+    Zombie *FindCrossingGuardTarget();
+    bool IsValidCrossingGuardTarget(Zombie *theTarget, bool theCheckRange);
+    bool IsTrafficConeTargetReserved(Zombie *theTarget);
+    bool BindRealatedZombie(Zombie *theZombie);
+    void UnbindRealatedZombie();
+    void LaunchTrafficCone(Zombie *theTarget);
     bool IsValidTeleportationTarget();
+    void ApplyTrafficCone();
     Plant *FindDogTarget();
     void SetDogPairRow(int theRow);
     void UpdateZombieGargantuar();
@@ -417,6 +433,7 @@ public:
     void UpdateZombiePeaHead();
     void UpdateZombieGatlingHead();
     void BurnRow(int theRow);
+    bool FindJalapenoHeadTarget();
     void UpdateZombieJalapenoHead();
     void UpdateZombieSquashHead();
     void UpdateZombieDancer();
@@ -432,6 +449,8 @@ public:
     void DetachShield();
     void CheckForBoardEdge();
     void DrawBossPart(Sexy::Graphics *g, int theBossPart);
+    bool IsGargantuar() const;
+    static bool IsGargantuar(ZombieType theZombieType);
     static bool IsZombotany(ZombieType theZombieType);
     static bool IsZomblob(ZombieType theZombieType);
     static bool ZombieTypeCanGoInPool(ZombieType theZombieType);

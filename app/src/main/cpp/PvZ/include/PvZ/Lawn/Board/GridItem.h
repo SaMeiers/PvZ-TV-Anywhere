@@ -61,7 +61,7 @@ public:
     int mSunCount;                           // 24
     MotionTrailFrame mMotionTrailFrames[12]; // 25 ~ 60
     int mMotionTrailCount;                   // 61
-    bool unkBool;                            // 62 * 4
+    bool mIsVSGraveStone;                    // 62 * 4
     bool mIsSpecialGrave;                    // 62 * 4 + 1
     int mMoundLevel;                         // 63
     int mSummonIndex;                        // 64
@@ -71,7 +71,7 @@ public:
     int mGraveJustGotShotCounter;            // 68
     int mVSGraveStoneHealth;                 // 69
     int mVSTargetZombieHealth;               // 70
-    int mTargetJustGotShotCounter;           // 71
+    int mVSTargetZombieDieCounter;           // 71
     int unkMems2[3];                         // 72 ~ 74
     // 大小75个整数
 
@@ -102,6 +102,7 @@ public:
     void DrawGridItem(Sexy::Graphics *g);
     void DrawScaryPot(Sexy::Graphics *g);
     void Update();
+    void UpdateMPGraveStone();
     void UpdateScaryPot();
     void UpdateBurialMound();
     void UpdatePole();

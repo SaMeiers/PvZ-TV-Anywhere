@@ -255,7 +255,7 @@ void SeedPacket::SetNextRandomSeed() {
     if (Challenge::IsMPResourceProducer(mPacketType) || mPacketType == SEED_BEGHOULED_BUTTON_SHUFFLE || mPacketType == SEED_ZOMBIE_BEGHOULED_BUTTON_SHUFFLE)
         return;
 
-    if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode)
+    if (IsRemoteClientOrViewer())
         return;
 
     SeedType seedType = SeedType::SEED_NONE;
@@ -263,7 +263,7 @@ void SeedPacket::SetNextRandomSeed() {
     seedType = PickNextRandomSeed(mApp, plantSeeds, zombieSeeds, mSeedBank->mIsZombie, mIndex);
     SetPacketType(seedType, SeedType::SEED_NONE);
 
-    if (gTcpClientSocket >= 0) {
+    if (IsRemoteServer()) {
         U8U8U16U16_Event event{};
         event.type = EventType::EVENT_SERVER_BOARD_SHUFFLE_RANDOM_PICK_NEXT;
         event.data1 = mSeedBank->mIsZombie;
@@ -489,6 +489,7 @@ void DrawSeedPacket(Sexy::Graphics *g,
         case SeedType::SEED_SWEET_POTATO:
         case SeedType::SEED_SUN_BEAN:
         case SeedType::SEED_PEANUT:
+        case SeedType::SEED_ENDURIAN:
             offsetY = 12.0f;
             offsetX = 8.0f;
             theDrawScale = 0.4f;
@@ -509,6 +510,7 @@ void DrawSeedPacket(Sexy::Graphics *g,
         case SeedType::SEED_ZOMBIE_EXPLORER:
         case SeedType::SEED_ZOMBIE_DOGWALKER:
         case SeedType::SEED_ZOMBIE_TELEPORTATION:
+        case SeedType::SEED_ZOMBIE_SCIENTIST:
             offsetY = -7.0f;
             offsetX = 3.0f;
             theDrawScale = 0.35f;
@@ -519,6 +521,7 @@ void DrawSeedPacket(Sexy::Graphics *g,
         case SeedType::SEED_ZOMBIE_TRASHCAN:
         case SeedType::SEED_ZOMBIE_POGO:
         case SeedType::SEED_ZOMBIE_JACK_IN_THE_BOX:
+        case SeedType::SEED_ZOMBIE_CROSSING_GUARD:
             offsetY = -10.0f;
             offsetX = -3.0f;
             theDrawScale = 0.35f;
@@ -568,6 +571,7 @@ void DrawSeedPacket(Sexy::Graphics *g,
         case SeedType::SEED_ZOMBIE_GARGANTUAR:
         case SeedType::SEED_ZOMBIE_REDEYE_GARGANTUAR:
         case SeedType::SEED_ZOMBIE_GIGA_GARGANTUAR:
+        case SeedType::SEED_ZOMBIE_SUPER_NOVA_GARGANTUAR:
             offsetY = 3.0f;
             offsetX = 4.0f;
             theDrawScale = 0.23f;
@@ -686,7 +690,7 @@ void SeedPacket::WasPlanted(int thePlayerIndex) {
         gFreeForFristShuffle[mSeedBank->mIsZombie] = false; // 首次免费在使用当下失效
     }
 
-    if (gTcpClientSocket >= 0) {
+    if (IsRemoteServer()) {
         U8U8_Event event = {{EventType::EVENT_SERVER_BOARD_SEEDPACKET_WASPLANTED}, uint8_t(mIndex), mSeedBank == mBoard->mSeedBank[0]};
         netplay::PutEvent(event);
     }

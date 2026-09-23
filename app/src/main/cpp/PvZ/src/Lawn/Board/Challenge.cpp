@@ -393,7 +393,7 @@ void Challenge::Update() {
 }
 
 void Challenge::UpdateVSAddPlants() const {
-    if (gTcpConnected) {
+    if (IsRemoteClient()) {
         return;
     }
     if (gIsServerModeSpectator || gIsReplayMode) {
@@ -871,6 +871,12 @@ ZombieType Challenge::IZombieSeedTypeToZombieType(SeedType theSeedType) {
             return ZOMBIE_DOGWALKER;
         case SEED_ZOMBIE_TELEPORTATION:
             return ZOMBIE_TELEPORTATION;
+        case SEED_ZOMBIE_SUPER_NOVA_GARGANTUAR:
+            return ZOMBIE_SUPER_NOVA_GARGANTUAR;
+        case SEED_ZOMBIE_CROSSING_GUARD:
+            return ZOMBIE_CROSSING_GUARD;
+        case SEED_ZOMBIE_SCIENTIST:
+            return ZOMBIE_SCIENTIST;
         default:
             return ZOMBIE_INVALID;
     }
@@ -888,24 +894,21 @@ void Challenge::IZombiePlaceZombie(ZombieType theZombieType, int theGridX, int t
         aZombie->mPosX = mBoard->GridToPixelX(theGridX, theGridY) - 30.0f;
     }
 
+    if (IsRemoteClientOrViewer()) {
+        return;
+    }
 
-    if (mApp->mGameMode == GAMEMODE_MP_VS) {
-        if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode) {
-            return;
+    if (IsRemoteServer()) {
+        U16UNI32UNI32_Event event{};
+        event.type = EventType::EVENT_SERVER_BOARD_ZOMBIE_ADD_BY_CHEAT;
+        event.data1 = uint16_t(mBoard->mZombies.DataArrayGetID(aZombie));
+        event.data2.u8x4.u8_1 = uint8_t(theGridX);
+        event.data2.u8x4.u8_2 = uint8_t(theGridY);
+        //            event.data3.u16x2.u16_2 = uint16_t(theZombieType);
+        if (theZombieType == ZOMBIE_BUNGEE) {
+            event.data3.f32 = aZombie->mAltitude;
         }
-
-        if (gTcpClientSocket >= 0) {
-            U16UNI32UNI32_Event event{};
-            event.type = EventType::EVENT_SERVER_BOARD_ZOMBIE_ADD_BY_CHEAT;
-            event.data1 = uint16_t(mBoard->mZombies.DataArrayGetID(aZombie));
-            event.data2.u8x4.u8_1 = uint8_t(theGridX);
-            event.data2.u8x4.u8_2 = uint8_t(theGridY);
-            //            event.data3.u16x2.u16_2 = uint16_t(theZombieType);
-            if (theZombieType == ZOMBIE_BUNGEE) {
-                event.data3.f32 = aZombie->mAltitude;
-            }
-            netplay::PutEvent(event);
-        }
+        netplay::PutEvent(event);
     }
 }
 
@@ -1068,7 +1071,7 @@ bool Challenge::IsMPZombieTypeAddInRow(ZombieType theZombieType) {
         || theZombieType == ZombieType::ZOMBIE_DUCKY_TUBE || theZombieType == ZombieType::ZOMBIE_SNORKEL || theZombieType == ZombieType::ZOMBIE_DOLPHIN_RIDER
         || theZombieType == ZombieType::ZOMBIE_BALLOON || theZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR || theZombieType == ZombieType::ZOMBIE_BOBSLED
         || theZombieType == ZombieType::ZOMBIE_JACKSON || theZombieType == ZombieType::ZOMBIE_EXPLORER || theZombieType == ZombieType::ZOMBIE_GIGA_GARGANTUAR
-        || theZombieType == ZombieType::ZOMBIE_DOGWALKER;
+        || theZombieType == ZombieType::ZOMBIE_DOGWALKER || theZombieType == ZombieType::ZOMBIE_SUPER_NOVA_GARGANTUAR;
 }
 
 bool Challenge::IsMPZombieTypeCanGoInPool(ZombieType theZombieType) {

@@ -104,7 +104,10 @@ enum PlantState // Prefix: STATE
     STATE_CELERY_STALKER_STOPPING,
     STATE_BLOOMERANG_CATCHING,
     STATE_BONK_CHOY_PUNCHING,
-    STATE_BONK_CHOY_UPPERCUTTING
+    STATE_BONK_CHOY_UPPERCUTTING,
+    STATE_ENDURIAN_STARTING,
+    STATE_ENDURIAN_ATTACKING,
+    STATE_ENDURIAN_STOPPING
 };
 
 enum PLANT_LAYER {
@@ -316,10 +319,12 @@ public:
     void AnimateCeleryStalker();
     void AnimateSweetPotato();
     void AnimatePeanut();
+    void AnimateEndurian();
     void PlayBodyReanim(const char *theTrackName, ReanimLoopType theLoopType, int theBlendTime, float theAnimRate);
     void SpikeweedAttack();
     void SpikeRockTakeDamage();
     bool IsSpiky() const;
+    bool IsCeleryStalkerLow() const;
     bool IsLowProfile() const;
     bool DrawMagnetItemsOnTop();
     void SetImitaterFilterEffect();
@@ -349,6 +354,7 @@ public:
     void UpdateCeleryStalker();
     void UpdateBonkChoy();
     void UpdateSweetPotato();
+    void UpdateEndurian();
     bool HasActiveBoomerang();
     void UpdateBloomerang();
     int CalcRenderOrder();

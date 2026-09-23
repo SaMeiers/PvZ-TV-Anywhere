@@ -95,6 +95,7 @@ public:
     void UpdateMotion();
     void UpdateNormalMotion();
     void UpdateLobMotion();
+    void UpdateAckeeMotion();
     void UpdateBoomerang();
     void BoomerangReturn();
     void DoImpact(Zombie *theZombie);

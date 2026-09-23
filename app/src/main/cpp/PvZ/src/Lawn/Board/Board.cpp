@@ -467,6 +467,7 @@ bool Board::TeleportPlant(Plant *thePlant, int theDestGridX, int theDestGridY) {
 
     const int aOriginGridX = thePlant->mPlantCol;
     const int aOriginGridY = thePlant->mRow;
+    GridItem *aLadder = GetLadderAt(aOriginGridX, aOriginGridY);
     SpawnTeleportEffect(GridToPixelX(aOriginGridX, aOriginGridY), GridToPixelY(aOriginGridX, aOriginGridY) + 20.0f, aOriginGridY);
 
     const SeedType aSeedType = thePlant->mSeedType == SeedType::SEED_IMITATER ? thePlant->mImitaterType : thePlant->mSeedType;
@@ -492,6 +493,13 @@ bool Board::TeleportPlant(Plant *thePlant, int theDestGridX, int theDestGridY) {
     thePlant->mX = GridToPixelX(aDestGridX, aDestGridY);
     thePlant->mY = GridToPixelY(aDestGridX, aDestGridY);
     thePlant->mEatenFlashCountdown = 150;
+
+    if (aLadder != nullptr) {
+        aLadder->mGridX = aDestGridX;
+        aLadder->mGridY = aDestGridY;
+        aLadder->mRenderOrder = MakeRenderOrder(RenderLayer::RENDER_LAYER_PLANT, aDestGridY, 800);
+    }
+
     thePlant->UpdateReanim();
     SpawnTeleportEffect(GridToPixelX(aDestGridX, aDestGridY), GridToPixelY(aDestGridX, aDestGridY) + 20.0f, aDestGridY);
     return true;
@@ -590,7 +598,7 @@ void Board::ShovelDown() {
     }
 
     requestDrawShovelInCursor = false;
-    if (gTcpClientSocket >= 0) {
+    if (IsRemoteServer()) {
         U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL}, requestDrawShovelInCursor};
         netplay::PutEvent(event);
     }
@@ -607,7 +615,7 @@ void Board::ShovelDown() {
     float aYPos = mGamepadControls[0]->mCursorPositionY;
     Plant *aPlantUnderShovel = ToolHitTest(aXPos, aYPos);
     if (aPlantUnderShovel != nullptr) {
-        if (gTcpClientSocket >= 0) {
+        if (IsRemoteServer()) {
             BaseEvent event = {EventType::EVENT_SERVER_BOARD_GAMEPAD_USE_SHOVEL};
             netplay::PutEvent(event);
         }
@@ -1013,11 +1021,11 @@ int Board::CountPlantByType(SeedType theSeedType) {
 Plant *Board::AddPlant(int theGridX, int theGridY, SeedType theSeedType, SeedType theImitaterType, int thePlayerIndex, bool theIsDoEffect) {
     Plant *aPlant = AddPlant_Origin(theGridX, theGridY, theSeedType, theImitaterType, thePlayerIndex, theIsDoEffect);
 
-    if (mApp->mGameMode == GAMEMODE_MP_VS && mApp->mGameScene == SCENE_PLAYING) {
-        if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode)
-            return nullptr;
+    if (IsRemoteClientOrViewer())
+        return nullptr;
 
-        if (gTcpClientSocket >= 0) {
+    if (mApp->mGameScene == SCENE_PLAYING) {
+        if (IsRemoteServer()) {
             U16U16U16UNI32UNI32_Event event{};
             event.type = EventType::EVENT_SERVER_BOARD_PLANT_ADD;
             event.data1 = uint16_t(theGridX);
@@ -1095,7 +1103,7 @@ void Board::DrawGameObjects(Graphics *g) {
 
 bool Board::KeyUp(Sexy::KeyCode theKey) {
     // 联机对战屏蔽按键，仅允许返回键
-    bool isOnlineMode = (gTcpConnected || gTcpClientSocket >= 0);
+    bool isOnlineMode = (IsRemoteClient() || IsRemoteServer());
 
     if (isOnlineMode) {
         return theKey == KEYCODE_BACK;
@@ -1124,9 +1132,9 @@ bool Board::KeyUp(Sexy::KeyCode theKey) {
     }
     GamepadControls *aControls = mGamepadControls[0];
     if (isOnlineMode) {
-        if (gTcpConnected) { // Guest
+        if (IsRemoteClient()) { // Guest
             aControls = mGamepadControls[0]->mGamepadIndex == 1 ? mGamepadControls[0] : mGamepadControls[1];
-        } else if (gTcpClientSocket >= 0) { // Host
+        } else if (IsRemoteServer()) { // Host
             aControls = mGamepadControls[0]->mGamepadIndex == 0 ? mGamepadControls[0] : mGamepadControls[1];
         }
     }
@@ -1143,7 +1151,7 @@ bool Board::KeyUp(Sexy::KeyCode theKey) {
 
 bool Board::KeyDown(KeyCode theKey) {
     // 联机对战屏蔽按键，仅允许返回键
-    bool isOnlineMode = (gTcpConnected || gTcpClientSocket >= 0);
+    bool isOnlineMode = (IsRemoteClient() || IsRemoteServer());
     if (isOnlineMode) {
         return theKey == KEYCODE_BACK;
     }
@@ -1217,9 +1225,9 @@ bool Board::KeyDown(KeyCode theKey) {
         }
         GamepadControls *aControls = mGamepadControls[0];
         if (isOnlineMode) {
-            if (gTcpConnected) { // Guest
+            if (IsRemoteClient()) { // Guest
                 aControls = mGamepadControls[0]->mGamepadIndex == 1 ? mGamepadControls[0] : mGamepadControls[1];
-            } else if (gTcpClientSocket >= 0) { // Host
+            } else if (IsRemoteServer()) { // Host
                 aControls = mGamepadControls[0]->mGamepadIndex == 0 ? mGamepadControls[0] : mGamepadControls[1];
             }
         }
@@ -1308,12 +1316,12 @@ void Board::GameButtonUp(GamepadButton theButton, int thePlayerIndex, unsigned i
 }
 
 Coin *Board::AddCoin(int theX, int theY, CoinType theCoinType, CoinMotion theCoinMotion) {
-    if (gTcpClientSocket >= 0) {
+    if (IsRemoteServer()) {
         U8U8U16U16_Event event = {{EventType::EVENT_SERVER_BOARD_COIN_ADD}, uint8_t(theCoinType), uint8_t(theCoinMotion), uint16_t(theX), uint16_t(theY)};
         netplay::PutEvent(event);
     }
 
-    if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode) {
+    if (IsRemoteClientOrViewer()) {
         return nullptr;
     }
 
@@ -1329,7 +1337,7 @@ void Board::UpdateSunSpawning() {
         return;
     }
 
-    if (mApp->IsVSMode() && (gTcpConnected || gIsServerModeSpectator || gIsReplayMode)) {
+    if (IsRemoteClientOrViewer()) {
         return;
     }
 
@@ -1814,10 +1822,10 @@ void Board::DrawFog(Sexy::Graphics *g) {
 
 Zombie *Board::AddZombieInRow(ZombieType theZombieType, int theRow, int theFromWave, bool theIsRustle) {
 
-    //    if (theZombieType == ZOMBIE_BOBSLED && (gTcpConnected || gTcpClientSocket >= 0)) {
+    //    if (theZombieType == ZOMBIE_BOBSLED && (IsRemoteClient() || IsRemoteServer())) {
     //
     //        // 不允许客户端通过AddZombieInRow来添加雪橇小队僵尸
-    //        if (gTcpConnected)
+    //        if (IsRemoteClient())
     //            return nullptr;
     //
     //
@@ -1832,7 +1840,7 @@ Zombie *Board::AddZombieInRow(ZombieType theZombieType, int theRow, int theFromW
     //        }
     //
     //
-    //        if (gTcpClientSocket >= 0) {
+    //        if (IsRemoteServer()) {
     //
     //            U8x2U16x4UNI32x8_Event event{};
     //            event.type = EventType::EVENT_SERVER_BOARD_ZOMBIE_BOBSELD_ADD;
@@ -1852,11 +1860,11 @@ Zombie *Board::AddZombieInRow(ZombieType theZombieType, int theRow, int theFromW
 
     Zombie *aZombie = AddZombieInRow_Origin(theZombieType, theRow, theFromWave, theIsRustle);
 
-    if (mApp->IsVSMode() && mApp->mGameScene == SCENE_PLAYING) {
-        if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode)
-            return nullptr;
+    if (IsRemoteClientOrViewer())
+        return nullptr;
 
-        if (gTcpClientSocket >= 0) {
+    if (mApp->mGameScene == SCENE_PLAYING) {
+        if (IsRemoteServer()) {
             if (theZombieType == ZombieType::ZOMBIE_BUNGEE) {
                 if (theFromWave == 0) {
                     // theFromWave == 0代表是偷植物的蹦极
@@ -2037,7 +2045,7 @@ void Board::processClientEvent(const BaseEvent *event) {
                 mApp->SetBoardResult(BoardResult::BOARDRESULT_VS_ZOMBIE_WON);
                 mApp->mGameScene = SCENE_ZOMBIES_WON;
             }
-            if (mApp->IsVSMode() && gTcpClientSocket >= 0) {
+            if (mApp->IsVSMode() && IsRemoteServer()) {
                 const bool plantWin = (mApp->mGameScene == SCENE_PLANTS_WON);
                 netplay::MetricsSetVsBackground(int(gVSBackground));
                 netplay::MetricsSetShuffleMode(Challenge::msVSShuffleMode);
@@ -2894,6 +2902,16 @@ void Board::processServerEvent(const BaseEvent *event) {
             if (homura::FindInMap(serverZombieIDMap, serverZombieID, clientZombieID)) {
                 Zombie *aZombie = mZombies.DataArrayGet(clientZombieID);
                 aZombie->mPosX = event1->data2.f32;
+                if (aZombie->mZombieType == ZombieType::ZOMBIE_SUPER_NOVA_GARGANTUAR) {
+                    Plant *aTargetPlant = aZombie->FindPlantTarget(ZombieAttackType::ATTACKTYPE_CHEW);
+                    if (aTargetPlant != nullptr) {
+                        aZombie->mTargetPlantID = PlantID(mPlants.DataArrayGetID(aTargetPlant));
+                        aZombie->mTargetCol = int(aTargetPlant->mSeedType);
+                    } else {
+                        aZombie->mTargetPlantID = PlantID::PLANTID_NULL;
+                        aZombie->mTargetCol = int(SeedType::SEED_NONE);
+                    }
+                }
                 aZombie->mZombiePhase = PHASE_GARGANTUAR_SMASHING;
                 mApp->PlayFoley(FOLEY_LOW_GROAN);
                 aZombie->PlayZombieReanim("anim_smash", REANIM_PLAY_ONCE_AND_HOLD, 20, 16.0f);
@@ -3018,6 +3036,7 @@ void Board::processServerEvent(const BaseEvent *event) {
             if (homura::FindInMap(serverZombieIDMap, sunBeanEvent->data1, clientZombieID)) {
                 Zombie *aZombie = mZombies.DataArrayGet(clientZombieID);
                 aZombie->mSunBeanSun = short(sunBeanEvent->data2);
+                mApp->PlaySample(SOUND_GULP);
             }
         } break;
         case EVENT_SERVER_BOARD_ZOMBIE_TELEPORTATION_SHOOT: {
@@ -3050,6 +3069,54 @@ void Board::processServerEvent(const BaseEvent *event) {
                 }
             }
         } break;
+        case EVENT_SERVER_BOARD_ZOMBIE_CROSSING_GUARD_THROW: {
+            auto *eventThrow = static_cast<const U16_Event *>(event);
+            uint16_t clientZombieID = 0;
+            if (homura::FindInMap(serverZombieIDMap, eventThrow->data, clientZombieID)) {
+                Zombie *aZombie = mZombies.DataArrayGet(clientZombieID);
+                aZombie->StopEating();
+                aZombie->mZombiePhase = ZombiePhase::PHASE_CROSSING_GUARD_THROWING;
+                aZombie->PlayZombieReanim("anim_throw", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 10, 16.0f);
+            }
+        } break;
+        case EVENT_SERVER_BOARD_ZOMBIE_CROSSING_GUARD_FIRE: {
+            auto *eventFire = static_cast<const U16U16_Event *>(event);
+            uint16_t clientThrowerID = 0;
+            if (homura::FindInMap(serverZombieIDMap, eventFire->data1, clientThrowerID)) {
+                Zombie *aThrower = mZombies.DataArrayGet(clientThrowerID);
+                if (eventFire->data2 == NETPLAY_ZOMBIE_ID_NULL) {
+                    aThrower->mZombiePhase = ZombiePhase::PHASE_ZOMBIE_NORMAL;
+                    aThrower->mPhaseCounter = 1000;
+                    aThrower->StartWalkAnim(10);
+                } else {
+                    uint16_t clientTargetID = 0;
+                    if (homura::FindInMap(serverZombieIDMap, eventFire->data2, clientTargetID)) {
+                        aThrower->LaunchTrafficCone(mZombies.DataArrayGet(clientTargetID));
+                    }
+                }
+            }
+        } break;
+        case EVENT_SERVER_BOARD_ZOMBIE_APPLY_CONE: {
+            auto *eventApply = static_cast<const U16_Event *>(event);
+            uint16_t clientZombieID = 0;
+            if (homura::FindInMap(serverZombieIDMap, eventApply->data, clientZombieID)) {
+                mZombies.DataArrayGet(clientZombieID)->ApplyTrafficCone();
+            }
+        } break;
+        case EVENT_SERVER_BOARD_ZOMBIE_SCIENTIST_STATE: {
+            auto *stateEvent = static_cast<const U16U16_Event *>(event);
+            uint16_t clientZombieID = 0;
+            if (homura::FindInMap(serverZombieIDMap, stateEvent->data1, clientZombieID)) {
+                mZombies.DataArrayGet(clientZombieID)->SetScientistPhase(ZombiePhase(stateEvent->data2));
+            }
+        } break;
+        case EVENT_SERVER_BOARD_ZOMBIE_SCIENTIST_HEAL: {
+            auto *healEvent = static_cast<const U16_Event *>(event);
+            uint16_t clientZombieID = 0;
+            if (homura::FindInMap(serverZombieIDMap, healEvent->data, clientZombieID)) {
+                mZombies.DataArrayGet(clientZombieID)->ApplyScientistHealing();
+            }
+        } break;
         case EVENT_SERVER_BOARD_ZOMBIE_PHASE_COUNTER: {
             auto *eventZombiePhaseCounter = static_cast<const U8U8U16U16_Event *>(event);
             uint8_t serverZombiePhase = eventZombiePhaseCounter->data1;
@@ -3067,6 +3134,15 @@ void Board::processServerEvent(const BaseEvent *event) {
                 }
                 if (aZombie->mZombieType == ZombieType::ZOMBIE_JACK_IN_THE_BOX && aZombie->mZombiePhase == ZombiePhase::PHASE_JACK_IN_THE_BOX_POPPING) {
                     aZombie->PlayZombieReanim("anim_pop", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 20, 28.0f);
+                }
+                if (aZombie->mZombieType == ZombieType::ZOMBIE_JALAPENO_HEAD && aZombie->mZombiePhase == ZombiePhase::PHASE_JALAPENO_BURNNING
+                    && oldZombiePhase != ZombiePhase::PHASE_JALAPENO_BURNNING) {
+                    Reanimation *aHeadReanim = aZombie->mApp->ReanimationTryToGet(aZombie->mSpecialHeadReanimID);
+                    if (aHeadReanim) {
+                        aHeadReanim->SetFramesForLayer("anim_explode");
+                        aHeadReanim->mLoopType = ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD;
+                    }
+                    mApp->PlayFoley(FoleyType::FOLEY_REVERSE_EXPLOSION);
                 }
                 if (aZombie->mZombieType == ZombieType::ZOMBIE_GIGA_FOOTBALL) {
                     if (aZombie->mZombiePhase == ZombiePhase::PHASE_FOOTBALL_TACKLING) {
@@ -3738,7 +3814,7 @@ void Board::Update() {
         if (choiceSeedType != SeedType::SEED_NONE && !IsOnlineServerModeActive() && !gIsReplayMode) {
             if (SeedBank *aSeedBank = mSeedBank[targetSeedBank]) {
                 SeedPacket &aSeedPacket = aSeedBank->mSeedPackets[choiceSeedPacketIndex];
-                if (aSeedBank->mIsZombie) {
+                if (aSeedBank->mIsZombie || mApp->IsIZombieLevel()) {
                     // IZ模式中用不了墓碑
                     if (Challenge::IsZombieSeedType(choiceSeedType) && (choiceSeedType != SeedType::SEED_ZOMBIE_GRAVESTONE || mApp->IsVSMode())) {
                         aSeedPacket.mPacketType = choiceSeedType;
@@ -3908,12 +3984,10 @@ void Board::SpawnZombiesFromGraves() {
 }
 
 void Board::SpawnZombieWave() {
-    // 在联机对战模式同步大波僵尸事件
-    if (mApp->IsVSMode()) {
-        if (gTcpClientSocket) {
-            BaseEvent event = {EventType::EVENT_SERVER_BOARD_ZOMBIE_HUGE_WAVE};
-            netplay::PutEvent(event);
-        }
+    // 在联机模式同步大波僵尸事件
+    if (IsRemoteServer()) {
+        BaseEvent event = {EventType::EVENT_SERVER_BOARD_ZOMBIE_HUGE_WAVE};
+        netplay::PutEvent(event);
     }
 
     old_Board_SpawnZombieWave(this);
@@ -4125,7 +4199,7 @@ void Board::Draw(Sexy::Graphics *g) {
 
         if (gIsReplayMode) {
 
-        } else if (gTcpConnected) {
+        } else if (IsRemoteClient()) {
             if (gNetDelayNow == 0) {
                 pvzstl::string status = TodStringTranslate(gIsServerModeSpectator ? "[SPECTATE]" : "[VS_STATUS_IN_ROOM]");
                 TodDrawString(g, GetServerModeTransportSuffix() + std::move(status), 400, -20, Sexy::FONT_DWARVENTODCRAFT18, aColor, DS_ALIGN_CENTER);
@@ -4134,7 +4208,7 @@ void Board::Draw(Sexy::Graphics *g) {
                 pvzstl::string delayText = gIsServerModeSpectator ? StrFormat("%s %dms", TodStringTranslate("[SPECTATE]").c_str(), gNetDelayNow * 10) : StrFormat(fmt.c_str(), gNetDelayNow * 10);
                 TodDrawString(g, GetServerModeTransportSuffix() + std::move(delayText), 400, -20, Sexy::FONT_DWARVENTODCRAFT18, aColor, DS_ALIGN_CENTER);
             }
-        } else if (gTcpClientSocket >= 0) {
+        } else if (IsRemoteServer()) {
             if (gNetDelayNow == 0) {
                 TodDrawString(g, GetServerModeTransportSuffix() + TodStringTranslate("[VS_STATUS_HOST]"), 400, -20, Sexy::FONT_DWARVENTODCRAFT18, aColor, DS_ALIGN_CENTER);
             } else {
@@ -4203,14 +4277,14 @@ void Board::Pause(bool thePause) {
     }
 
     // 只有“本地主动触发”的暂停/恢复才发网络包
-    if (!gPauseSyncFromRemote && mApp->mGameMode == GAMEMODE_MP_VS && !mApp->mVSSetupMenu) {
+    if (!gPauseSyncFromRemote && !mApp->mVSSetupMenu) {
 
-        if (gTcpConnected) {
+        if (IsRemoteClient()) {
             U8_Event event = {{EventType::EVENT_CLIENT_BOARD_PAUSE}, thePause};
             netplay::PutEvent(event);
         }
 
-        if (gTcpClientSocket >= 0) {
+        if (IsRemoteServer()) {
             U8_Event event = {{EventType::EVENT_SERVER_BOARD_PAUSE}, thePause};
             netplay::PutEvent(event);
         }
@@ -4460,8 +4534,7 @@ int Board::GetLiveGargantuarCount() {
     int num = 0;
     Zombie *aZombie = nullptr;
     while (IterateZombies(aZombie)) {
-        if (!aZombie->mDead && aZombie->mHasHead && !aZombie->IsDeadOrDying() && aZombie->IsOnBoard()
-            && (aZombie->mZombieType == ZombieType::ZOMBIE_GARGANTUAR || aZombie->mZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR)) {
+        if (!aZombie->mDead && aZombie->mHasHead && !aZombie->IsDeadOrDying() && aZombie->IsOnBoard() && aZombie->IsGargantuar()) {
             num++;
         }
     }
@@ -4965,7 +5038,7 @@ void Board::MouseDown(int x, int y, int theClickCount) {
         return;
     }
 
-    if (mApp->mGameMode != GAMEMODE_MP_VS || (!gTcpConnected && gTcpClientSocket == -1)) {
+    if (!IsRemoteClient() && !IsRemoteServer()) {
         __MouseDown(x, y, theClickCount);
         return;
     }
@@ -4977,7 +5050,7 @@ void Board::MouseDown(int x, int y, int theClickCount) {
 
 
     // 如果是客户端
-    if (gTcpConnected) {
+    if (IsRemoteClient()) {
         if (inRangeOf1PSeedBank)
             return;
         I16I16_Event event = {{EventType::EVENT_CLIENT_BOARD_TOUCH_DOWN}, int16_t(x), int16_t(y)};
@@ -4987,7 +5060,7 @@ void Board::MouseDown(int x, int y, int theClickCount) {
     }
 
     // 如果是主机端
-    if (gTcpClientSocket >= 0) {
+    if (IsRemoteServer()) {
         if (inRangeOf2PSeedBank)
             return;
         __MouseDown(x, y, theClickCount);
@@ -5045,7 +5118,7 @@ void Board::__MouseDown(int x, int y, int theClickCount) {
             return;
         auto *aSeedPacket = (SeedPacket *)hitResult.mObject;
         const auto seedPacketPlayerIndex = static_cast<TouchPlayerIndex>(aSeedPacket->GetPlayerIndex());
-        if (aGameMode == GameMode::GAMEMODE_MP_VS && gTcpClientSocket >= 0) {
+        if (aGameMode == GameMode::GAMEMODE_MP_VS && IsRemoteServer()) {
             gPlayerIndex = mGamepadControls[0]->mGamepadIndex == 0 ? TouchPlayerIndex::TOUCHPLAYER_PLAYER1 : TouchPlayerIndex::TOUCHPLAYER_PLAYER2;
             if (seedPacketPlayerIndex != gPlayerIndex)
                 return;
@@ -5054,7 +5127,7 @@ void Board::__MouseDown(int x, int y, int theClickCount) {
         }
         if (gPlayerIndex == TouchPlayerIndex::TOUCHPLAYER_PLAYER1) {
             requestDrawShovelInCursor = false; // 不再绘制铲子
-            if (gTcpClientSocket) {
+            if (IsRemoteServer()) {
                 U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL}, requestDrawShovelInCursor};
                 netplay::PutEvent(event);
             }
@@ -5083,12 +5156,12 @@ void Board::__MouseDown(int x, int y, int theClickCount) {
                 mGamepadControls[0]->mGamepadState = BaseGamepadControls::MOVEMENT_STATE_PLANT_CURSOR;
                 mGamepadControls[0]->mIsInShopSeedBank = false;
                 bool isClientGamepadControl = mGamepadControls[0]->mGamepadIndex == 1;
-                if (gTcpClientSocket >= 0 && isClientGamepadControl) { // 让对方播放音效
+                if (IsRemoteServer() && isClientGamepadControl) { // 让对方播放音效
                     U8_Event event = {{EventType::EVENT_SERVER_BOARD_PLAY_SOUND}, 2};
                     netplay::PutEvent(event);
                 } else {
                     mApp->PlaySample(SOUND_SEEDLIFT);
-                    if (gTcpClientSocket >= 0) {
+                    if (IsRemoteServer()) {
                         U8U8_Event event = {{EventType::EVENT_SERVER_BOARD_PLAY_SOUND_SR}, 0, uint8_t(SOUND_SEEDLIFT)};
                         netplay::PutEvent(event);
                     }
@@ -5126,12 +5199,12 @@ void Board::__MouseDown(int x, int y, int theClickCount) {
                 mGamepadControls[1]->mGamepadState = BaseGamepadControls::MOVEMENT_STATE_PLANT_CURSOR;
                 mGamepadControls[1]->mIsInShopSeedBank = false;
                 bool isClientGamepadControl = mGamepadControls[1]->mGamepadIndex == 1;
-                if (gTcpClientSocket >= 0 && isClientGamepadControl) { // 让对方播放音效
+                if (IsRemoteServer() && isClientGamepadControl) { // 让对方播放音效
                     U8_Event event = {{EventType::EVENT_SERVER_BOARD_PLAY_SOUND}, 2};
                     netplay::PutEvent(event);
                 } else {
                     mApp->PlaySample(SOUND_SEEDLIFT);
-                    if (gTcpClientSocket >= 0) {
+                    if (IsRemoteServer()) {
                         U8U8_Event event = {{EventType::EVENT_SERVER_BOARD_PLAY_SOUND_SR}, 0, uint8_t(SOUND_SEEDLIFT)};
                         netplay::PutEvent(event);
                     }
@@ -5179,7 +5252,7 @@ void Board::__MouseDown(int x, int y, int theClickCount) {
             requestDrawShovelInCursor = true;
             mApp->PlayFoley(FoleyType::FOLEY_SHOVEL);
         }
-        if (gTcpClientSocket) {
+        if (IsRemoteServer()) {
             U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL}, requestDrawShovelInCursor};
             netplay::PutEvent(event);
         }
@@ -5213,7 +5286,7 @@ void Board::__MouseDown(int x, int y, int theClickCount) {
     }
 
     if (aGameMode == GameMode::GAMEMODE_MP_VS) {
-        if (gTcpClientSocket >= 0) {
+        if (IsRemoteServer()) {
             gPlayerIndex = mGamepadControls[0]->mGamepadIndex == 0 ? TouchPlayerIndex::TOUCHPLAYER_PLAYER1 : TouchPlayerIndex::TOUCHPLAYER_PLAYER2;
         } else {
             gPlayerIndex = PixelToGridX(x, y) > 5 ? TouchPlayerIndex::TOUCHPLAYER_PLAYER2 : TouchPlayerIndex::TOUCHPLAYER_PLAYER1;
@@ -5235,7 +5308,7 @@ void Board::__MouseDown(int x, int y, int theClickCount) {
         if (coin->mType == CoinType::COIN_USABLE_SEED_PACKET) {
             gTouchState = TouchState::TOUCHSTATE_USEFUL_SEED_PACKET;
             requestDrawShovelInCursor = false;
-            if (gTcpClientSocket) {
+            if (IsRemoteServer()) {
                 U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL}, requestDrawShovelInCursor};
                 netplay::PutEvent(event);
             }
@@ -5388,11 +5461,11 @@ void Board::MouseDrag(int x, int y) {
     }
     // Drag函数仅仅负责移动光标即可
 
-    if (mApp->mGameMode != GAMEMODE_MP_VS) {
+    if (!IsRemoteClient() && !IsRemoteServer()) {
         __MouseDrag(x, y);
         return;
     }
-    if (gTcpConnected) {
+    if (IsRemoteClient()) {
         I16I16_Event event = {{EventType::EVENT_CLIENT_BOARD_TOUCH_DRAG}, int16_t(x), int16_t(y)};
         netplay::PutEvent(event);
         ClientMouseDragLocal(x, y);
@@ -5400,7 +5473,7 @@ void Board::MouseDrag(int x, int y) {
     }
     __MouseDrag(x, y);
 
-    if (gTcpClientSocket >= 0) {
+    if (IsRemoteServer()) {
         GamepadControls *serverGamepadControls = mGamepadControls[0]->mGamepadIndex == 0 ? mGamepadControls[0] : mGamepadControls[1];
         I16I16_Event event = {{EventType::EVENT_SERVER_BOARD_TOUCH_DRAG}, int16_t(serverGamepadControls->mCursorPositionX), int16_t(serverGamepadControls->mCursorPositionY)};
         netplay::PutEvent(event);
@@ -5436,11 +5509,11 @@ void Board::__MouseDrag(int x, int y) {
             mGamepadControls[0]->mGamepadState = BaseGamepadControls::MOVEMENT_STATE_PLANT_CURSOR;
             mGamepadControls[0]->mIsInShopSeedBank = false;
             requestDrawShovelInCursor = false;
-            if (gTcpClientSocket) {
+            if (IsRemoteServer()) {
                 U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL}, requestDrawShovelInCursor};
                 netplay::PutEvent(event);
             }
-            if (gTcpClientSocket >= 0 && mGamepadControls[0]->mGamepadIndex == 0) {
+            if (IsRemoteServer() && mGamepadControls[0]->mGamepadIndex == 0) {
                 U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_SET_STATE}, 7};
                 netplay::PutEvent(event);
             }
@@ -5448,7 +5521,7 @@ void Board::__MouseDrag(int x, int y) {
             mGamepadControls[1]->mGamepadState = BaseGamepadControls::MOVEMENT_STATE_PLANT_CURSOR;
             mGamepadControls[1]->mIsInShopSeedBank = false;
             requestDrawButterInCursor = false;
-            if (gTcpClientSocket >= 0 && mGamepadControls[1]->mGamepadIndex == 0) {
+            if (IsRemoteServer() && mGamepadControls[1]->mGamepadIndex == 0) {
                 U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_SET_STATE}, 7};
                 netplay::PutEvent(event);
             }
@@ -5457,25 +5530,14 @@ void Board::__MouseDrag(int x, int y) {
     }
 
     if (gTouchState == TouchState::TOUCHSTATE_SHOVEL_RECT) {
-        if (mGameMode == GameMode::GAMEMODE_MP_VS) {
-            if (gTouchVSShovelRect.Contains(gTouchLastX, gTouchLastY) && !gTouchVSShovelRect.Contains(x, y)) {
-                gTouchState = TouchState::TOUCHSTATE_BOARD_MOVED_FROM_SHOVEL_RECT;
-                if (!requestDrawShovelInCursor)
-                    mApp->PlayFoley(FoleyType::FOLEY_SHOVEL);
-                requestDrawShovelInCursor = true;
-                if (gTcpClientSocket) {
-                    U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL}, requestDrawShovelInCursor};
-                    netplay::PutEvent(event);
-                }
-                mGamepadControls[0]->mGamepadState = BaseGamepadControls::MOVEMENT_STATE_NORMAL;
-                gSendKeyWhenTouchUp = true;
-            }
-        } else if (gTouchLastY < gTouchShovelRectWidth && y >= gTouchShovelRectWidth) {
+        const bool aMovedFromShovelRect = mGameMode == GameMode::GAMEMODE_MP_VS ? gTouchVSShovelRect.Contains(gTouchLastX, gTouchLastY) && !gTouchVSShovelRect.Contains(x, y)
+                                                                                : gTouchLastY < gTouchShovelRectWidth && y >= gTouchShovelRectWidth;
+        if (aMovedFromShovelRect) {
             gTouchState = TouchState::TOUCHSTATE_BOARD_MOVED_FROM_SHOVEL_RECT;
             if (!requestDrawShovelInCursor)
                 mApp->PlayFoley(FoleyType::FOLEY_SHOVEL);
             requestDrawShovelInCursor = true;
-            if (gTcpClientSocket) {
+            if (IsRemoteServer()) {
                 U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL}, requestDrawShovelInCursor};
                 netplay::PutEvent(event);
             }
@@ -5525,7 +5587,7 @@ void Board::__MouseDrag(int x, int y) {
             gTouchState = TouchState::TOUCHSTATE_NONE;
             gSendKeyWhenTouchUp = false;
 
-            if (mGamepadControls[0]->mGamepadIndex == 0 && gTcpClientSocket >= 0) {
+            if (mGamepadControls[0]->mGamepadIndex == 0 && IsRemoteServer()) {
                 BaseEvent event = {EventType::EVENT_SERVER_BOARD_TOUCH_CLEAR_CURSOR};
                 netplay::PutEvent(event);
             }
@@ -5541,7 +5603,7 @@ void Board::__MouseDrag(int x, int y) {
             gTouchState = TouchState::TOUCHSTATE_NONE;
             gSendKeyWhenTouchUp = false;
 
-            if (mGamepadControls[1]->mGamepadIndex == 0 && gTcpClientSocket >= 0) {
+            if (mGamepadControls[1]->mGamepadIndex == 0 && IsRemoteServer()) {
                 BaseEvent event = {EventType::EVENT_SERVER_BOARD_TOUCH_CLEAR_CURSOR};
                 netplay::PutEvent(event);
             }
@@ -5588,11 +5650,11 @@ void Board::MouseUp(int x, int y, int theClickCount) {
     if (gIsServerModeSpectator || gIsReplayMode) {
         return;
     }
-    if (mApp->mGameMode != GAMEMODE_MP_VS) {
+    if (!IsRemoteClient() && !IsRemoteServer()) {
         __MouseUp(x, y, theClickCount);
         return;
     }
-    if (gTcpConnected) {
+    if (IsRemoteClient()) {
         I16I16_Event event = {{EventType::EVENT_CLIENT_BOARD_TOUCH_UP}, int16_t(x), int16_t(y)};
         netplay::PutEvent(event);
         ClientMouseUpLocal(x, y);
@@ -5600,7 +5662,7 @@ void Board::MouseUp(int x, int y, int theClickCount) {
     }
     __MouseUp(x, y, theClickCount);
 
-    if (gTcpClientSocket >= 0) {
+    if (IsRemoteServer()) {
         GamepadControls *serverGamepadControls = mGamepadControls[0]->mGamepadIndex == 0 ? mGamepadControls[0] : mGamepadControls[1];
         CursorObject *serverCursorObject = mGamepadControls[0]->mGamepadIndex == 0 ? mCursorObject[0] : mCursorObject[1];
         U8U8_Event event = {{EventType::EVENT_SERVER_BOARD_TOUCH_UP}, uint8_t(serverGamepadControls->mGamepadState), uint8_t(serverCursorObject->mCursorType)};
@@ -5752,7 +5814,7 @@ void Board::MouseDownSecond(int x, int y, int theClickCount) {
         auto *aSeedPacket = (SeedPacket *)hitResult.mObject;
         int newSeedPacketIndex = aSeedPacket->mIndex;
         const auto seedPacketPlayerIndex = static_cast<TouchPlayerIndex>(aSeedPacket->GetPlayerIndex());
-        if (aGameMode == GameMode::GAMEMODE_MP_VS && gTcpClientSocket >= 0) {
+        if (aGameMode == GameMode::GAMEMODE_MP_VS && IsRemoteServer()) {
             gPlayerIndexSecond = mGamepadControls[1]->mGamepadIndex == 0 ? TouchPlayerIndex::TOUCHPLAYER_PLAYER1 : TouchPlayerIndex::TOUCHPLAYER_PLAYER2;
             if (seedPacketPlayerIndex != gPlayerIndexSecond)
                 return;
@@ -5762,7 +5824,7 @@ void Board::MouseDownSecond(int x, int y, int theClickCount) {
 
         if (gPlayerIndexSecond == TouchPlayerIndex::TOUCHPLAYER_PLAYER1) {
             requestDrawShovelInCursor = false; // 不再绘制铲子
-            if (gTcpClientSocket) {
+            if (IsRemoteServer()) {
                 U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL}, requestDrawShovelInCursor};
                 netplay::PutEvent(event);
             }
@@ -5792,12 +5854,12 @@ void Board::MouseDownSecond(int x, int y, int theClickCount) {
                 mGamepadControls[0]->mGamepadState = BaseGamepadControls::MOVEMENT_STATE_PLANT_CURSOR;
                 mGamepadControls[0]->mIsInShopSeedBank = false;
                 bool isClientGamepadControl = mGamepadControls[0]->mGamepadIndex == 1;
-                if (gTcpClientSocket >= 0 && isClientGamepadControl) { // 让对方播放音效
+                if (IsRemoteServer() && isClientGamepadControl) { // 让对方播放音效
                     U8_Event event = {{EventType::EVENT_SERVER_BOARD_PLAY_SOUND}, 2};
                     netplay::PutEvent(event);
                 } else {
                     mApp->PlaySample(SOUND_SEEDLIFT);
-                    if (gTcpClientSocket >= 0) {
+                    if (IsRemoteServer()) {
                         U8U8_Event event = {{EventType::EVENT_SERVER_BOARD_PLAY_SOUND_SR}, 0, uint8_t(SOUND_SEEDLIFT)};
                         netplay::PutEvent(event);
                     }
@@ -5836,12 +5898,12 @@ void Board::MouseDownSecond(int x, int y, int theClickCount) {
                 mGamepadControls[1]->mIsInShopSeedBank = false;
 
                 bool isClientGamepadControl = mGamepadControls[1]->mGamepadIndex == 1;
-                if (gTcpClientSocket >= 0 && isClientGamepadControl) { // 让对方播放音效
+                if (IsRemoteServer() && isClientGamepadControl) { // 让对方播放音效
                     U8_Event event = {{EventType::EVENT_SERVER_BOARD_PLAY_SOUND}, 2};
                     netplay::PutEvent(event);
                 } else {
                     mApp->PlaySample(SOUND_SEEDLIFT);
-                    if (gTcpClientSocket >= 0) {
+                    if (IsRemoteServer()) {
                         U8U8_Event event = {{EventType::EVENT_SERVER_BOARD_PLAY_SOUND_SR}, 0, uint8_t(SOUND_SEEDLIFT)};
                         netplay::PutEvent(event);
                     }
@@ -5901,7 +5963,7 @@ void Board::MouseDownSecond(int x, int y, int theClickCount) {
             requestDrawShovelInCursor = true;
             mApp->PlayFoley(FoleyType::FOLEY_SHOVEL);
         }
-        if (gTcpClientSocket) {
+        if (IsRemoteServer()) {
             U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL}, requestDrawShovelInCursor};
             netplay::PutEvent(event);
         }
@@ -5936,7 +5998,7 @@ void Board::MouseDownSecond(int x, int y, int theClickCount) {
     }
 
     if (aGameMode == GameMode::GAMEMODE_MP_VS) {
-        if (gTcpClientSocket >= 0) {
+        if (IsRemoteServer()) {
             gPlayerIndexSecond = mGamepadControls[1]->mGamepadIndex == 0 ? TouchPlayerIndex::TOUCHPLAYER_PLAYER1 : TouchPlayerIndex::TOUCHPLAYER_PLAYER2;
         } else {
             gPlayerIndexSecond = PixelToGridX(x, y) > 5 ? TouchPlayerIndex::TOUCHPLAYER_PLAYER2 : TouchPlayerIndex::TOUCHPLAYER_PLAYER1;
@@ -5969,7 +6031,7 @@ void Board::MouseDownSecond(int x, int y, int theClickCount) {
         if (coin->mType == CoinType::COIN_USABLE_SEED_PACKET) {
             gTouchStateSecond = TouchState::TOUCHSTATE_USEFUL_SEED_PACKET;
             requestDrawShovelInCursor = false;
-            if (gTcpClientSocket) {
+            if (IsRemoteServer()) {
                 U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL}, requestDrawShovelInCursor};
                 netplay::PutEvent(event);
             }
@@ -6130,11 +6192,11 @@ void Board::MouseDragSecond(int x, int y) {
             mGamepadControls[0]->mGamepadState = BaseGamepadControls::MOVEMENT_STATE_PLANT_CURSOR;
             mGamepadControls[0]->mIsInShopSeedBank = false;
             requestDrawShovelInCursor = false;
-            if (gTcpClientSocket) {
+            if (IsRemoteServer()) {
                 U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL}, requestDrawShovelInCursor};
                 netplay::PutEvent(event);
             }
-            if (gTcpClientSocket >= 0 && mGamepadControls[0]->mGamepadIndex == 1) {
+            if (IsRemoteServer() && mGamepadControls[0]->mGamepadIndex == 1) {
                 U8_Event event = {{EventType::EVENT_CLIENT_BOARD_GAMEPAD_SET_STATE}, 7};
                 netplay::PutEvent(event);
             }
@@ -6142,7 +6204,7 @@ void Board::MouseDragSecond(int x, int y) {
             mGamepadControls[1]->mGamepadState = BaseGamepadControls::MOVEMENT_STATE_PLANT_CURSOR;
             mGamepadControls[1]->mIsInShopSeedBank = false;
             requestDrawButterInCursor = false;
-            if (gTcpClientSocket >= 0 && mGamepadControls[1]->mGamepadIndex == 1) {
+            if (IsRemoteServer() && mGamepadControls[1]->mGamepadIndex == 1) {
                 U8_Event event = {{EventType::EVENT_CLIENT_BOARD_GAMEPAD_SET_STATE}, 7};
                 netplay::PutEvent(event);
             }
@@ -6151,25 +6213,14 @@ void Board::MouseDragSecond(int x, int y) {
     }
 
     if (gTouchStateSecond == TouchState::TOUCHSTATE_SHOVEL_RECT) {
-        if (aGameMode == GameMode::GAMEMODE_MP_VS) {
-            if (gTouchVSShovelRect.Contains(gTouchLastXSecond, gTouchLastYSecond) && !gTouchVSShovelRect.Contains(x, y)) {
-                gTouchStateSecond = TouchState::TOUCHSTATE_BOARD_MOVED_FROM_SHOVEL_RECT;
-                if (!requestDrawShovelInCursor)
-                    mApp->PlayFoley(FoleyType::FOLEY_SHOVEL);
-                requestDrawShovelInCursor = true;
-                if (gTcpClientSocket) {
-                    U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL}, requestDrawShovelInCursor};
-                    netplay::PutEvent(event);
-                }
-                mGamepadControls[0]->mGamepadState = BaseGamepadControls::MOVEMENT_STATE_NORMAL;
-                gSendKeyWhenTouchUpSecond = true;
-            }
-        } else if (gTouchLastYSecond < gTouchShovelRectWidth && y >= gTouchShovelRectWidth) {
+        const bool aMovedFromShovelRect = aGameMode == GameMode::GAMEMODE_MP_VS ? gTouchVSShovelRect.Contains(gTouchLastXSecond, gTouchLastYSecond) && !gTouchVSShovelRect.Contains(x, y)
+                                                                                : gTouchLastYSecond < gTouchShovelRectWidth && y >= gTouchShovelRectWidth;
+        if (aMovedFromShovelRect) {
             gTouchStateSecond = TouchState::TOUCHSTATE_BOARD_MOVED_FROM_SHOVEL_RECT;
             if (!requestDrawShovelInCursor)
                 mApp->PlayFoley(FoleyType::FOLEY_SHOVEL);
             requestDrawShovelInCursor = true;
-            if (gTcpClientSocket) {
+            if (IsRemoteServer()) {
                 U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL}, requestDrawShovelInCursor};
                 netplay::PutEvent(event);
             }
@@ -6222,7 +6273,7 @@ void Board::MouseDragSecond(int x, int y) {
             gTouchStateSecond = TouchState::TOUCHSTATE_NONE;
             gSendKeyWhenTouchUpSecond = false;
 
-            if (gTcpClientSocket >= 0 && mGamepadControls[0]->mGamepadIndex == 1) {
+            if (IsRemoteServer() && mGamepadControls[0]->mGamepadIndex == 1) {
                 BaseEvent event = {EventType::EVENT_CLIENT_BOARD_TOUCH_CLEAR_CURSOR};
                 netplay::PutEvent(event);
             }
@@ -6238,7 +6289,7 @@ void Board::MouseDragSecond(int x, int y) {
             gTouchStateSecond = TouchState::TOUCHSTATE_NONE;
             gSendKeyWhenTouchUpSecond = false;
 
-            if (gTcpClientSocket >= 0 && mGamepadControls[1]->mGamepadIndex == 1) {
+            if (IsRemoteServer() && mGamepadControls[1]->mGamepadIndex == 1) {
                 BaseEvent event = {EventType::EVENT_CLIENT_BOARD_TOUCH_CLEAR_CURSOR};
                 netplay::PutEvent(event);
             }
@@ -6372,49 +6423,49 @@ void Board::StartLevel() {
         if (isGlobalBpFirstRound) {
             VSResultsMenu::ClearPlayerRecords();
         }
+    }
 
-        if (gTcpClientSocket >= 0) {
+    if (IsRemoteServer()) {
 
-            // 重置计时器，以与客户端同步舞王的舞步节奏
-            mMainCounter = 0;
+        // 重置计时器，以与客户端同步舞王的舞步节奏
+        mMainCounter = 0;
 
-            BaseEvent nineShortDataEvent = {EventType::EVENT_SERVER_BOARD_START_LEVEL};
-            netplay::PutEvent(nineShortDataEvent);
-            GridItem *gridItem = nullptr;
-            while (IterateGridItems(gridItem)) {
+        BaseEvent nineShortDataEvent = {EventType::EVENT_SERVER_BOARD_START_LEVEL};
+        netplay::PutEvent(nineShortDataEvent);
+        GridItem *gridItem = nullptr;
+        while (IterateGridItems(gridItem)) {
 
-                U16UNI32_Event eventSync{};
-                eventSync.type = EventType::EVENT_SERVER_BOARD_SYNC_ID;
-                eventSync.data1 = uint16_t(mGridItems.DataArrayGetID(gridItem));
-                eventSync.data2.u8x4.u8_1 = 1; // 1 --> GridItem
-                eventSync.data2.u8x4.u8_2 = uint8_t(gridItem->mGridItemType);
-                eventSync.data2.u8x4.u8_3 = uint8_t(gridItem->mGridX);
-                eventSync.data2.u8x4.u8_4 = uint8_t(gridItem->mGridY);
-                netplay::PutEvent(eventSync);
-
-
-                U16U16_Event event = {{EventType::EVENT_SERVER_BOARD_GRIDITEM_LAUNCHCOUNTER}, uint16_t(mGridItems.DataArrayGetID(gridItem)), uint16_t(gridItem->mLaunchCounter)};
-                netplay::PutEvent(event);
-            }
-
-            Plant *plant = nullptr;
-            while (IteratePlants(plant)) {
-
-                U16UNI32_Event eventSync{};
-                eventSync.type = EventType::EVENT_SERVER_BOARD_SYNC_ID;
-                eventSync.data1 = uint16_t(mPlants.DataArrayGetID(plant));
-                eventSync.data2.u8x4.u8_1 = 0; // 0 --> Plant
-                eventSync.data2.u8x4.u8_2 = uint8_t(plant->mSeedType);
-                eventSync.data2.u8x4.u8_3 = uint8_t(plant->mRow);
-                eventSync.data2.u8x4.u8_4 = uint8_t(plant->mPlantCol);
-                netplay::PutEvent(eventSync);
+            U16UNI32_Event eventSync{};
+            eventSync.type = EventType::EVENT_SERVER_BOARD_SYNC_ID;
+            eventSync.data1 = uint16_t(mGridItems.DataArrayGetID(gridItem));
+            eventSync.data2.u8x4.u8_1 = 1; // 1 --> GridItem
+            eventSync.data2.u8x4.u8_2 = uint8_t(gridItem->mGridItemType);
+            eventSync.data2.u8x4.u8_3 = uint8_t(gridItem->mGridX);
+            eventSync.data2.u8x4.u8_4 = uint8_t(gridItem->mGridY);
+            netplay::PutEvent(eventSync);
 
 
-                U16U16_Event event = {{EventType::EVENT_SERVER_BOARD_PLANT_LAUNCHCOUNTER}, uint16_t(mPlants.DataArrayGetID(plant)), uint16_t(plant->mLaunchCounter)};
-                netplay::PutEvent(event);
-                //                plant->SyncPingPongAnimationToClient();
-                plant->SyncAnimationToClient();
-            }
+            U16U16_Event event = {{EventType::EVENT_SERVER_BOARD_GRIDITEM_LAUNCHCOUNTER}, uint16_t(mGridItems.DataArrayGetID(gridItem)), uint16_t(gridItem->mLaunchCounter)};
+            netplay::PutEvent(event);
+        }
+
+        Plant *plant = nullptr;
+        while (IteratePlants(plant)) {
+
+            U16UNI32_Event eventSync{};
+            eventSync.type = EventType::EVENT_SERVER_BOARD_SYNC_ID;
+            eventSync.data1 = uint16_t(mPlants.DataArrayGetID(plant));
+            eventSync.data2.u8x4.u8_1 = 0; // 0 --> Plant
+            eventSync.data2.u8x4.u8_2 = uint8_t(plant->mSeedType);
+            eventSync.data2.u8x4.u8_3 = uint8_t(plant->mRow);
+            eventSync.data2.u8x4.u8_4 = uint8_t(plant->mPlantCol);
+            netplay::PutEvent(eventSync);
+
+
+            U16U16_Event event = {{EventType::EVENT_SERVER_BOARD_PLANT_LAUNCHCOUNTER}, uint16_t(mPlants.DataArrayGetID(plant)), uint16_t(plant->mLaunchCounter)};
+            netplay::PutEvent(event);
+            //                plant->SyncPingPongAnimationToClient();
+            plant->SyncAnimationToClient();
         }
     }
     old_Board_StartLevel(this);
@@ -6668,16 +6719,7 @@ void Board::DrawUITop(Sexy::Graphics *g) {
                     continue;
                 }
 
-                switch (aZombie->mZombieType) {
-                    case ZombieType::ZOMBIE_GARGANTUAR:
-                    case ZombieType::ZOMBIE_REDEYE_GARGANTUAR:
-                    case ZombieType::ZOMBIE_GIGA_GARGANTUAR:
-                        hasGargantuarInTopRow = true;
-                        break;
-
-                    default:
-                        break;
-                }
+                hasGargantuarInTopRow = aZombie->IsGargantuar();
 
                 if (hasGargantuarInTopRow) {
                     break;
@@ -6824,7 +6866,7 @@ bool Board::RowCanHaveZombieType(int theRow, ZombieType theZombieType) {
     }
     // “自古一路无巨人”（生存模式除外）
     if (theRow == 0 && !LawnApp::IsSurvivalEndless(mApp->mGameMode)) {
-        if (theZombieType == ZombieType::ZOMBIE_GARGANTUAR || theZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR) {
+        if (Zombie::IsGargantuar(theZombieType)) {
             return false;
         }
     }
@@ -7495,13 +7537,13 @@ GridItem *Board::AddACrater_Origin(int theGridX, int theGridY) {
 }
 
 GridItem *Board::AddACrater(int theGridX, int theGridY) {
-    if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode) {
+    if (IsRemoteClientOrViewer()) {
         return nullptr;
     }
 
     GridItem *aCrater = AddACrater_Origin(theGridX, theGridY);
 
-    if (gTcpClientSocket >= 0 && mApp->mGameScene == SCENE_PLAYING) {
+    if (IsRemoteServer() && mApp->mGameScene == SCENE_PLAYING) {
         U8U8U16_Event event = {{EventType::EVENT_SERVER_BOARD_GRIDITEM_ADDCRATER}, uint8_t(theGridX), uint8_t(theGridY), uint16_t(mGridItems.DataArrayGetID(aCrater))};
         netplay::PutEvent(event);
     }
@@ -7519,13 +7561,13 @@ GridItem *Board::AddALadder_Origin(int theGridX, int theGridY) {
 }
 
 GridItem *Board::AddALadder(int theGridX, int theGridY) {
-    if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode) {
+    if (IsRemoteClientOrViewer()) {
         return nullptr;
     }
 
     GridItem *aLadder = AddALadder_Origin(theGridX, theGridY);
 
-    if (gTcpClientSocket >= 0 && mApp->mGameScene == SCENE_PLAYING) {
+    if (IsRemoteServer() && mApp->mGameScene == SCENE_PLAYING) {
         U8U8U16_Event event = {{EventType::EVENT_SERVER_BOARD_GRIDITEM_ADDLADDER}, uint8_t(theGridX), uint8_t(theGridY), uint16_t(mGridItems.DataArrayGetID(aLadder))};
         netplay::PutEvent(event);
     }
@@ -7547,7 +7589,7 @@ GridItem *Board::AddAGraveStone(int theGridX, int theGridY) {
     }
 
     if (mApp->IsVSMode()) {
-        aGraveStone->unkBool = true;
+        aGraveStone->mIsVSGraveStone = true;
         int aX = GridToPixelX(theGridX, theGridY);
         int aY = GridToPixelY(theGridX, theGridY);
         int aRenderOrder = MakeRenderOrder(RenderLayer::RENDER_LAYER_GRAVE_STONE, theGridY, 0);
@@ -7566,7 +7608,7 @@ GridItem *Board::AddAGraveStone(int theGridX, int theGridY) {
         aGraveStone->AddGraveStoneParticles();
     }
 
-    if (gTcpClientSocket >= 0 && mApp->mGameScene == SCENE_PLAYING) {
+    if (IsRemoteServer() && mApp->mGameScene == SCENE_PLAYING) {
         U8U8U16U16_Event event = {
             {EventType::EVENT_SERVER_BOARD_GRIDITEM_ADDGRAVE}, uint8_t(theGridX), uint8_t(theGridY), uint16_t(mGridItems.DataArrayGetID(aGraveStone)), uint16_t(aGraveStone->mLaunchCounter)};
         netplay::PutEvent(event);
@@ -7590,7 +7632,7 @@ GridItem *Board::AddAMound(int theGridX, int theGridY, int theMoundLevel) {
     aMound->mRenderOrder = MakeRenderOrder(RenderLayer::RENDER_LAYER_GRAVE_STONE, theGridY, 3);
 
     if (mApp->IsVSMode()) {
-        aMound->unkBool = true;
+        aMound->mIsVSGraveStone = true;
         int aX = GridToPixelX(theGridX, theGridY);
         int aY = GridToPixelY(theGridX, theGridY);
         int aRenderOrder = MakeRenderOrder(RenderLayer::RENDER_LAYER_GRAVE_STONE, theGridY, 0);
@@ -7618,7 +7660,7 @@ GridItem *Board::AddAMound(int theGridX, int theGridY, int theMoundLevel) {
         }
     }
 
-    if (gTcpClientSocket >= 0 && mApp->mGameScene == SCENE_PLAYING) {
+    if (IsRemoteServer() && mApp->mGameScene == SCENE_PLAYING) {
         U8x3U16x3_Event event{};
         event.type = EventType::EVENT_SERVER_BOARD_GRIDITEM_ADDMOUND;
         event.data1[0] = uint8_t(theGridX);
@@ -7634,13 +7676,13 @@ GridItem *Board::AddAMound(int theGridX, int theGridY, int theMoundLevel) {
 }
 
 GridItem *Board::AddAPole(int theX, int theY, int theGridY) {
-    if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode) {
+    if (IsRemoteClientOrViewer()) {
         return nullptr;
     }
 
     GridItem *aPole = AddAPole_Origin(theX, theY, theGridY);
 
-    if (gTcpClientSocket >= 0 && mApp->mGameScene == SCENE_PLAYING) {
+    if (IsRemoteServer() && mApp->mGameScene == SCENE_PLAYING) {
         U16x4_Event event = {{EventType::EVENT_SERVER_BOARD_GRIDITEM_ADDPOLE}, {uint16_t(theX), uint16_t(theY), uint16_t(theGridY), uint16_t(mGridItems.DataArrayGetID(aPole))}};
         netplay::PutEvent(event);
     }
@@ -7666,7 +7708,7 @@ GridItem *Board::AddAPole_Origin(int theX, int theY, int theGridY) {
 bool Board::TakeSunMoney(int theAmount, int thePlayer) {
     //    LOG_DEBUG("{} {}", theAmount, thePlayer);
     bool result = old_Board_TakeSunMoney(this, theAmount, thePlayer);
-    if (gTcpClientSocket >= 0) {
+    if (IsRemoteServer()) {
         I16_Event event = {{EventType::EVENT_SERVER_BOARD_TAKE_SUNMONEY}, int16_t(mSunMoney1)};
         netplay::PutEvent(event);
     }
@@ -7686,7 +7728,7 @@ bool Board::TakeDeathMoney(int theAmount) {
         mDeathMoney -= theAmount;
     }
 
-    if (gTcpClientSocket >= 0) {
+    if (IsRemoteServer()) {
         I16_Event event = {{EventType::EVENT_SERVER_BOARD_TAKE_DEATHMONEY}, int16_t(mDeathMoney)};
         netplay::PutEvent(event);
     }
@@ -7708,7 +7750,7 @@ void Board::ShuffleButtonDown(SeedPacket *theSeedPacket) {
     if (!Challenge::msVSShuffleMode)
         return;
 
-    if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode)
+    if (IsRemoteClientOrViewer())
         return;
 
     SeedType aPacketType = theSeedPacket->mPacketType;
@@ -7729,7 +7771,7 @@ void Board::ShuffleButtonDown(SeedPacket *theSeedPacket) {
         theSeedPacket->Deactivate();
         theSeedPacket->WasPlanted(0);
 
-        if (gTcpClientSocket >= 0) {
+        if (IsRemoteServer()) {
             U16x6_Event event{};
             event.type = EventType::EVENT_SERVER_BOARD_SHUFFLE_RANDOM_PICK;
             for (int i = 0; i < 5; ++i) {
@@ -7755,7 +7797,7 @@ void Board::ShuffleButtonDown(SeedPacket *theSeedPacket) {
         theSeedPacket->Deactivate();
         theSeedPacket->WasPlanted(1);
 
-        if (gTcpClientSocket >= 0) {
+        if (IsRemoteServer()) {
             U16x6_Event event{};
             event.type = EventType::EVENT_SERVER_BOARD_SHUFFLE_RANDOM_PICK;
             for (int i = 0; i < 5; ++i) {
@@ -7815,7 +7857,7 @@ void Board::DrawLevel(Graphics *g) {
 
 bool Board::CanAddBobSledMP() {
     // 客户端不允许私自召唤雪橇小队
-    if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode)
+    if (IsRemoteClientOrViewer())
         return false;
 
     // 遍历 6 条车道
@@ -7864,12 +7906,12 @@ void Board::PlantsWon(GridItem *theGridItem) {
     //    if (mApp->IsVSMode() && gTcpConnected)
     //        return;
     //
-    //    if (gTcpClientSocket >= 0) {
+    //    if (IsRemoteServer()) {
     //        U16_Event event = {{EventType::EVENT_SERVER_BOARD_PLANT_WIN},uint16_t(mGridItems.DataArrayGetID(theGridItem))};
     //        netplay::PutEvent(event);
     //    }
 
-    if (mApp->IsVSMode() && gTcpClientSocket >= 0) {
+    if (mApp->IsVSMode() && IsRemoteServer()) {
         // 所选对战场地
         netplay::MetricsSetVsBackground(int(gVSBackground));
         // 对战游戏模式

@@ -245,7 +245,7 @@ Sexy::MemoryImage *ReanimatorCache::MakeCachedZombieFrame(ZombieType theZombieTy
             aDogeReanim.Update();
             aDogeReanim.Draw(&aMemoryGraphics);
         } else {
-            if (theZombieType == ZombieType::ZOMBIE_GIGA_GARGANTUAR) {
+            if (Zombie::IsGargantuar(theZombieType)) {
                 aPosY = 60.0f;
             }
             Reanimation aReanim;

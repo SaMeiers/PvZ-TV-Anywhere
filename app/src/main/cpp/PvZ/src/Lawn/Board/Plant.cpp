@@ -113,7 +113,9 @@ PlantDefinition gExtendedPlantDefs[]{
     {SeedType::SEED_CHILLY_PEPPER, nullptr, ReanimationType::REANIM_CHILLY_PEPPER, 0, 100, 5000, PlantSubClass::SUBCLASS_NORMAL, 0, "CHILLY_PEPPER"},
     {SeedType::SEED_SUN_BEAN, nullptr, ReanimationType::REANIM_SUN_BEAN, 0, 50, 3000, PlantSubClass::SUBCLASS_NORMAL, 0, "SUN_BEAN"},
     {SeedType::SEED_PEANUT, nullptr, ReanimationType::REANIM_PEANUT, 0, 150, 3000, PlantSubClass::SUBCLASS_SHOOTER, 200, "PEANUT"},
+    {SeedType::SEED_ENDURIAN, nullptr, ReanimationType::REANIM_ENDURIAN, 0, 75, 3000, PlantSubClass::SUBCLASS_NORMAL, 0, "ENDURIAN"},
     {SeedType::SEED_IMP_PEAR, nullptr, ReanimationType::REANIM_IMP_PEAR, 0, 100, 3000, PlantSubClass::SUBCLASS_NORMAL, 0, "IMP_PEAR"},
+    {SeedType::SEED_AKEE, nullptr, ReanimationType::REANIM_AKEE, 0, 175, 750, PlantSubClass::SUBCLASS_SHOOTER, 300, "AKEE"},
 };
 
 void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, SeedType theImitaterType, int a6) {
@@ -149,6 +151,9 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
         case SeedType::SEED_PEANUT:
             mPlantMaxHealth = 4000;
             break;
+        case SeedType::SEED_ENDURIAN:
+            mPlantMaxHealth = 3000;
+            break;
         default:
             break;
     }
@@ -165,11 +170,11 @@ void Plant::PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, Se
         //                mLaunchCounter = RandRangeInt(0, mLaunchRate);
         //        } else
         //            mLaunchCounter = 0;
+    }
 
-        if (gTcpClientSocket >= 0) {
-            U16U16_Event event = {{EventType::EVENT_SERVER_BOARD_PLANT_LAUNCHCOUNTER}, uint16_t(mBoard->mPlants.DataArrayGetID(this)), uint16_t(mLaunchCounter)};
-            netplay::PutEvent(event);
-        }
+    if (IsRemoteServer()) {
+        U16U16_Event event = {{EventType::EVENT_SERVER_BOARD_PLANT_LAUNCHCOUNTER}, uint16_t(mBoard->mPlants.DataArrayGetID(this)), uint16_t(mLaunchCounter)};
+        netplay::PutEvent(event);
     }
 
     // 在对战模式修改指定植物的血量
@@ -213,6 +218,7 @@ int Plant::GetDamageRangeFlags(PlantWeapon thePlantWeapon) const {
         case SeedType::SEED_KERNELPULT:
         case SeedType::SEED_WINTERMELON:
         case SeedType::SEED_SPORESHROOM:
+        case SeedType::SEED_AKEE:
             return 13;
         case SeedType::SEED_POTATOMINE:
             return 77;
@@ -226,6 +232,7 @@ int Plant::GetDamageRangeFlags(PlantWeapon thePlantWeapon) const {
         case SeedType::SEED_ICEBERG_LETTUCE:
         case SeedType::SEED_BONK_CHOY:
         case SeedType::SEED_CELERY_STALKER:
+        case SeedType::SEED_ENDURIAN:
             return 9; // DAMANGES_GROUND | DAMAGES_DOG
         case SeedType::SEED_CATTAIL:
             return 11;
@@ -285,6 +292,10 @@ bool Plant::IsSpiky() const {
     return mSeedType == SeedType::SEED_SPIKEWEED || mSeedType == SeedType::SEED_SPIKEROCK;
 }
 
+bool Plant::IsCeleryStalkerLow() const {
+    return mState == PlantState::STATE_CELERY_STALKER_LOW || mState == PlantState::STATE_CELERY_STALKER_LOWERING;
+}
+
 bool Plant::IsLowProfile() const {
     switch (mSeedType) {
         case SeedType::SEED_PUFFSHROOM:
@@ -297,7 +308,7 @@ bool Plant::IsLowProfile() const {
             return true;
 
         case SeedType::SEED_CELERY_STALKER:
-            return mState == PlantState::STATE_CELERY_STALKER_LOW || mState == PlantState::STATE_CELERY_STALKER_LOWERING;
+            return IsCeleryStalkerLow();
 
         default:
             return false;
@@ -380,6 +391,8 @@ void Plant::Animate() {
         AnimateSweetPotato();
     } else if (mSeedType == SeedType::SEED_PEANUT) {
         AnimatePeanut();
+    } else if (mSeedType == SeedType::SEED_ENDURIAN) {
+        AnimateEndurian();
     }
 
     UpdateBlink();
@@ -464,6 +477,26 @@ void Plant::AnimatePeanut() {
     }
 }
 
+void Plant::AnimateEndurian() {
+    Reanimation *aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
+    Image *aImageOverride = aBodyReanim->GetImageOverride("Endurian_body");
+    if (mPlantHealth < mPlantMaxHealth / 3) {
+        if (aImageOverride != addonImages.IMAGE_REANIM_ENDURIAN_BODY3) {
+            aBodyReanim->SetImageOverride("Endurian_body", addonImages.IMAGE_REANIM_ENDURIAN_BODY3);
+            aBodyReanim->SetImageOverride("Endurian_stem", addonImages.IMAGE_REANIM_ENDURIAN_STEM2);
+            aBodyReanim->SetImageOverride("Endurian_eye", addonImages.IMAGE_REANIM_ENDURIAN_EYE2);
+            aBodyReanim->AssignRenderGroupToPrefix("Endurian_eyeball2", RENDER_GROUP_HIDDEN);
+        }
+    } else if (mPlantHealth < mPlantMaxHealth * 2 / 3) {
+        if (aImageOverride != addonImages.IMAGE_REANIM_ENDURIAN_BODY2) {
+            aBodyReanim->SetImageOverride("Endurian_body", addonImages.IMAGE_REANIM_ENDURIAN_BODY2);
+        }
+    } else {
+        aBodyReanim->SetImageOverride("Endurian_body", nullptr);
+        aBodyReanim->SetImageOverride("Endurian_stem", nullptr);
+    }
+}
+
 void Plant::Update() {
     // 用于修复植物受击闪光、生产发光、铲子下方植物发光，同时实现技能无冷却
 
@@ -537,7 +570,48 @@ void Plant::UpdateAbilities() {
         UpdateBonkChoy();
     } else if (mSeedType == SeedType::SEED_SWEET_POTATO) {
         UpdateSweetPotato();
+    } else if (mSeedType == SeedType::SEED_ENDURIAN) {
+        UpdateEndurian();
     }
+}
+
+void Plant::UpdateEndurian() {
+    static constexpr int kEndurianDamage = 20;
+    static constexpr int kEndurianDamageInterval = 100;
+
+    Zombie *aZombie = mBoard->GetLadderAt(mPlantCol, mRow) == nullptr ? FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY) : nullptr;
+
+    Reanimation *aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
+    if (aZombie == nullptr) {
+        mStateCountdown = 0;
+        if (mState == PlantState::STATE_ENDURIAN_STARTING || mState == PlantState::STATE_ENDURIAN_ATTACKING) {
+            PlayBodyReanim("anim_stop", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 10, 18.0f);
+            mState = PlantState::STATE_ENDURIAN_STOPPING;
+        } else if (mState == PlantState::STATE_ENDURIAN_STOPPING && aBodyReanim != nullptr && aBodyReanim->mLoopCount > 0) {
+            PlayIdleAnim(aBodyReanim->mDefinition->mFPS);
+            mState = PlantState::STATE_READY;
+        }
+        return;
+    }
+
+    if (mState != PlantState::STATE_ENDURIAN_STARTING && mState != PlantState::STATE_ENDURIAN_ATTACKING) {
+        PlayBodyReanim("anim_start", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 10, 18.0f);
+        mState = PlantState::STATE_ENDURIAN_STARTING;
+        return;
+    }
+    if (mState == PlantState::STATE_ENDURIAN_STARTING) {
+        if (aBodyReanim == nullptr || aBodyReanim->mLoopCount == 0) {
+            return;
+        }
+        mState = PlantState::STATE_ENDURIAN_ATTACKING;
+    } else if (mStateCountdown > 0) {
+        return;
+    }
+
+    PlayBodyReanim("anim_attack", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 0, 18.0f);
+    mStateCountdown = kEndurianDamageInterval;
+
+    DoRowAreaDamage(kEndurianDamage, 0U);
 }
 
 bool Plant::HasActiveBoomerang() {
@@ -578,7 +652,7 @@ void Plant::UpdateBloomerang() {
 }
 
 void Plant::UpdateSweetPotato() {
-    if (mApp->IsVSMode() && (gTcpConnected || gIsReplayMode)) {
+    if (IsRemoteClientOrViewer()) {
         return;
     }
 
@@ -666,7 +740,7 @@ void Plant::UpdateSweetPotato() {
         aZombie->StartWalkAnim(20);
         aZombie->SetRow(mRow);
 
-        if (mApp->IsVSMode() && gTcpClientSocket >= 0) {
+        if (IsRemoteServer()) {
             U16U16_Event event = {{EventType::EVENT_SERVER_BOARD_ZOMBIE_SET_ROW}, uint16_t(mBoard->mZombies.DataArrayGetID(aZombie)), uint16_t(mRow)};
             netplay::PutEvent(event);
         }
@@ -1147,11 +1221,12 @@ void Plant::KillAllPlantsNearDoom() {
 void Plant::DoSpecial() {
     // 试图修复辣椒爆炸后反而在本行的末尾处产生冰道。失败。
 
-    if (mApp->IsVSMode() && mApp->mGameScene == SCENE_PLAYING) {
-        if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode) {
-            return;
-        }
-        if (gTcpClientSocket >= 0) {
+    if (IsRemoteClientOrViewer()) {
+        return;
+    }
+
+    if (mApp->mGameScene == SCENE_PLAYING) {
+        if (IsRemoteServer()) {
             U16_Event event = {{EventType::EVENT_SERVER_BOARD_PLANT_DO_SPECIAL}, uint16_t(mBoard->mPlants.DataArrayGetID(this))};
             netplay::PutEvent(event);
         }
@@ -1323,28 +1398,26 @@ void Plant::CobCannonFire(int x, int y) {
 }
 
 void Plant::Fire(Zombie *theTargetZombie, int theRow, PlantWeapon thePlantWeapon, GridItem *theTargetGridItem) {
-    if (mApp->IsVSMode()) {
-        if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode)
-            return;
+    if (IsRemoteClientOrViewer())
+        return;
 
-        if (gTcpClientSocket >= 0) {
-            U16U16U16UNI32UNI32_Event event{};
+    if (IsRemoteServer()) {
+        U16U16U16UNI32UNI32_Event event{};
 
-            event.type = EventType::EVENT_SERVER_BOARD_PLANT_FIRE;
-            event.data1 = uint16_t(mBoard->mPlants.DataArrayGetID(this));
-            event.data2 = theTargetZombie == nullptr ? NETPLAY_ZOMBIE_ID_NULL : uint16_t(mBoard->mZombies.DataArrayGetID(theTargetZombie));
-            event.data4.u16x2.u16_1 = uint16_t(theRow);
-            event.data4.u16x2.u16_2 = uint16_t(thePlantWeapon);
-            // 如果同时传入有效的 theTargetZombie 和 theTargetGridItem 会导致投手弹道计算错误
-            if (theTargetZombie) { // 存在僵尸目标时传入空的场地物 ID
-                event.data5.u16x2.u16_1 = NETPLAY_GRIDITEM_ID_NULL;
-            } else {
-                event.data5.u16x2.u16_1 = theTargetGridItem == nullptr ? NETPLAY_GRIDITEM_ID_NULL : uint16_t(mBoard->mGridItems.DataArrayGetID(theTargetGridItem));
-            }
-            netplay::PutEvent(event);
-            //            SyncPingPongAnimationToClient();
-            //            SyncAnimationToClient();
+        event.type = EventType::EVENT_SERVER_BOARD_PLANT_FIRE;
+        event.data1 = uint16_t(mBoard->mPlants.DataArrayGetID(this));
+        event.data2 = theTargetZombie == nullptr ? NETPLAY_ZOMBIE_ID_NULL : uint16_t(mBoard->mZombies.DataArrayGetID(theTargetZombie));
+        event.data4.u16x2.u16_1 = uint16_t(theRow);
+        event.data4.u16x2.u16_2 = uint16_t(thePlantWeapon);
+        // 如果同时传入有效的 theTargetZombie 和 theTargetGridItem 会导致投手弹道计算错误
+        if (theTargetZombie) { // 存在僵尸目标时传入空的场地物 ID
+            event.data5.u16x2.u16_1 = NETPLAY_GRIDITEM_ID_NULL;
+        } else {
+            event.data5.u16x2.u16_1 = theTargetGridItem == nullptr ? NETPLAY_GRIDITEM_ID_NULL : uint16_t(mBoard->mGridItems.DataArrayGetID(theTargetGridItem));
         }
+        netplay::PutEvent(event);
+        //            SyncPingPongAnimationToClient();
+        //            SyncAnimationToClient();
     }
 
     Fire_Origin(theTargetZombie, theRow, thePlantWeapon, theTargetGridItem);
@@ -1369,8 +1442,9 @@ void Plant::DoRowAreaDamage(int theDamage, unsigned int theDamageFlags) {
         }
 
         if (aZombie->mOnHighGround == IsOnHighGround() && aZombie->EffectedByDamage(aDamageRangeFlags)) {
+            int aExtraRange = mSeedType == SeedType::SEED_ENDURIAN && aZombie->mZombieType == ZombieType::ZOMBIE_LADDER ? 20 : 0;
             Rect aZombieRect = aZombie->GetZombieRect();
-            if (GetRectOverlap(aAttackRect, aZombieRect) > 0) {
+            if (GetRectOverlap(aAttackRect, aZombieRect) > -aExtraRange) {
                 int aDamage = theDamage;
                 if ((aZombie->mZombieType == ZombieType::ZOMBIE_ZAMBONI || aZombie->mZombieType == ZombieType::ZOMBIE_CATAPULT) && TestBit(theDamageFlags, DamageFlags::DAMAGE_SPIKE)) {
                     aDamage = 1800;
@@ -1488,6 +1562,9 @@ void Plant::Fire_Origin(Zombie *theTargetZombie, int theRow, PlantWeapon thePlan
         case SeedType::SEED_BLOOMERANG:
             aProjectileType = ProjectileType::PROJECTILE_BOOMERANG;
             break;
+        case SeedType::SEED_AKEE:
+            aProjectileType = ProjectileType::PROJECTILE_ACKEE;
+            break;
         default:
             break;
     }
@@ -1509,7 +1586,7 @@ void Plant::Fire_Origin(Zombie *theTargetZombie, int theRow, PlantWeapon thePlan
     } else if (mSeedType == SeedType::SEED_SEASHROOM) {
         aOriginX = mX + 45;
         aOriginY = mY + 63;
-    } else if (mSeedType == SeedType::SEED_CABBAGEPULT || mSeedType == SeedType::SEED_SPORESHROOM) {
+    } else if (mSeedType == SeedType::SEED_CABBAGEPULT || mSeedType == SeedType::SEED_SPORESHROOM || mSeedType == SeedType::SEED_AKEE) {
         aOriginX = mX + 5;
         aOriginY = mY - 12;
     } else if (mSeedType == SeedType::SEED_MELONPULT || mSeedType == SeedType::SEED_WINTERMELON) {
@@ -1599,9 +1676,9 @@ void Plant::Fire_Origin(Zombie *theTargetZombie, int theRow, PlantWeapon thePlan
         aProjectile->mRelatedPlantID = mBoard->PlantGetID(this);
         aProjectile->mVelX = 6.6f; // 直线子弹的两倍速
 
-        // 发射时预先锁定本行最靠前的两个目标，并在最远锁定目标的 X + 80 处停留后折返。
+        // 发射时预先锁定本行最靠前的三个目标，并在最远锁定目标的 X + 60 处停留后折返。
         // mHitZombieIDs / mHitGridItemIDs 保存锁定名单；mHitTorchwoodGridX 保存去程命中位图；mCobTargetRow 保存回程命中位图。
-        constexpr int BOOMERANG_MAX_TARGETS = 2;
+        constexpr int BOOMERANG_MAX_TARGETS = 3;
 
         struct BoomerangLockedTarget {
             float mTargetX;
@@ -1668,6 +1745,10 @@ void Plant::Fire_Origin(Zombie *theTargetZombie, int theRow, PlantWeapon thePlan
                 }
             }
 
+            // 墓碑只锁定本行最靠近回旋镖射手的一个。
+            GridItem *aClosestGravestone = nullptr;
+            float aClosestGravestoneX = 0.0f;
+
             aGridItem = nullptr;
             while (mBoard->IterateGridItems(aGridItem)) {
                 if (aGridItem->mGridY != theRow) {
@@ -1678,8 +1759,8 @@ void Plant::Fire_Origin(Zombie *theTargetZombie, int theRow, PlantWeapon thePlan
                     continue;
                 }
 
-                const bool aDamageableGridItem = aGridItem->mGridItemType == GridItemType::GRIDITEM_GRAVESTONE || aGridItem->mGridItemType == GridItemType::GRIDITEM_MP_BURIAL_MOUND
-                    || (aGridItem->mGridItemType == GridItemType::GRIDITEM_MP_TARGET_ZOMBIE && aGridItem->mVSTargetZombieHealth > 0);
+                const bool aIsGravestone = aGridItem->mGridItemType == GridItemType::GRIDITEM_GRAVESTONE || aGridItem->mGridItemType == GridItemType::GRIDITEM_MP_BURIAL_MOUND;
+                const bool aDamageableGridItem = aIsGravestone || (aGridItem->mGridItemType == GridItemType::GRIDITEM_MP_TARGET_ZOMBIE && aGridItem->mVSTargetZombieHealth > 0);
                 if (!aDamageableGridItem) {
                     continue;
                 }
@@ -1689,7 +1770,20 @@ void Plant::Fire_Origin(Zombie *theTargetZombie, int theRow, PlantWeapon thePlan
                     continue;
                 }
 
+                if (aIsGravestone) {
+                    const float aGridItemX = float(aGridItemRect.mX);
+                    if (aClosestGravestone == nullptr || aGridItemX < aClosestGravestoneX) {
+                        aClosestGravestone = aGridItem;
+                        aClosestGravestoneX = aGridItemX;
+                    }
+                    continue;
+                }
+
                 AddBoomerangTarget(float(aGridItemRect.mX), ZombieID::ZOMBIEID_NULL, mBoard->GridItemGetID(aGridItem));
+            }
+
+            if (aClosestGravestone != nullptr) {
+                AddBoomerangTarget(aClosestGravestoneX, ZombieID::ZOMBIEID_NULL, mBoard->GridItemGetID(aClosestGravestone));
             }
         }
 
@@ -1708,7 +1802,7 @@ void Plant::Fire_Origin(Zombie *theTargetZombie, int theRow, PlantWeapon thePlan
         aProjectile->mCobTargetRow = 0;
 
         if (aLockedTargetCount > 0) {
-            aProjectile->mCobTargetX = aLockedTargets[aLockedTargetCount - 1].mTargetX + 80.0f;
+            aProjectile->mCobTargetX = aLockedTargets[aLockedTargetCount - 1].mTargetX + 60.0f;
         } else {
             // 动画期间目标全部消失时，保留一个安全的出界折返点。
             aProjectile->mCobTargetX = 790.0f;
@@ -1718,7 +1812,7 @@ void Plant::Fire_Origin(Zombie *theTargetZombie, int theRow, PlantWeapon thePlan
     }
 
     if (mSeedType == SeedType::SEED_CABBAGEPULT || mSeedType == SeedType::SEED_KERNELPULT || mSeedType == SeedType::SEED_MELONPULT || mSeedType == SeedType::SEED_WINTERMELON
-        || mSeedType == SeedType::SEED_SPORESHROOM) {
+        || mSeedType == SeedType::SEED_SPORESHROOM || mSeedType == SeedType::SEED_AKEE) {
         float aRangeX = NAN, aRangeY = NAN;
         if (theTargetZombie) {
             Rect aZombieRect = theTargetZombie->GetZombieRect();
@@ -1808,7 +1902,7 @@ Zombie *Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon) {
 
         if (!aZombie->mHasHead || aZombie->IsTangleKelpTarget()) {
             if (mSeedType == SeedType::SEED_POTATOMINE || mSeedType == SeedType::SEED_CHOMPER || mSeedType == SeedType::SEED_TANGLEKELP || mSeedType == SeedType::SEED_ICEBERG_LETTUCE
-                || mSeedType == SeedType::SEED_CELERY_STALKER || mSeedType == SeedType::SEED_BONK_CHOY) {
+                || mSeedType == SeedType::SEED_CELERY_STALKER || mSeedType == SeedType::SEED_BONK_CHOY || mSeedType == SeedType::SEED_ENDURIAN) {
                 continue;
             }
         }
@@ -1893,6 +1987,12 @@ Zombie *Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon) {
                 }
                 if (aZombie->mZombieType == ZombieType::ZOMBIE_BUNGEE && aZombie->mTargetCol != mPlantCol - 1) {
                     continue; // 只能攻击左侧一格的蹦极僵尸
+                }
+            }
+
+            if (mSeedType == SeedType::SEED_ENDURIAN) {
+                if (aZombie->mZombieType == ZombieType::ZOMBIE_LADDER) {
+                    aExtraRange = 20;
                 }
             }
 
@@ -2048,11 +2148,11 @@ GridItem *Plant::FindTargetGridItem(int theRow, PlantWeapon thePlantWeapon) {
 }
 
 void Plant::Die() {
-    if (mApp->IsVSMode() && mApp->mGameScene == SCENE_PLAYING) {
-        if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode)
-            return;
+    if (IsRemoteClientOrViewer())
+        return;
 
-        if (gTcpClientSocket >= 0) {
+    if (mApp->mGameScene == SCENE_PLAYING) {
+        if (IsRemoteServer()) {
             U16_Event event = {{EventType::EVENT_SERVER_BOARD_PLANT_DIE}, uint16_t(mBoard->mPlants.DataArrayGetID(this))};
             netplay::PutEvent(event);
             // 向日葵战损
@@ -2126,13 +2226,13 @@ static int GetVSCostDefault(SeedType theSeedType) {
         case SeedType::SEED_ZOMBIE_YETI:
         case SeedType::SEED_ZOMBIE_PEA_HEAD:
         case SeedType::SEED_ZOMBIE_SQUASH_HEAD:
+        case SeedType::SEED_ZOMBIE_MOUND:
             return 50;
         case SeedType::SEED_SQUASH:
         case SeedType::SEED_GARLIC:
         case SeedType::SEED_CELERY_STALKER:
         case SeedType::SEED_ZOMBIE_TRAFFIC_CONE:
         case SeedType::SEED_ZOMBIE_BOBSLED:
-        case SeedType::SEED_ZOMBIE_MOUND:
             return 75;
         case SeedType::SEED_CACTUS:
         case SeedType::SEED_SPORESHROOM:
@@ -2146,6 +2246,7 @@ static int GetVSCostDefault(SeedType theSeedType) {
         case SeedType::SEED_ZOMBIE_EXPLORER:
         case SeedType::SEED_ZOMBIE_DOGWALKER:
         case SeedType::SEED_ZOMBIE_TELEPORTATION:
+        case SeedType::SEED_ZOMBIE_SCIENTIST:
             return 100;
         case SeedType::SEED_TORCHWOOD:
         case SeedType::SEED_BLOOMERANG:
@@ -2156,6 +2257,8 @@ static int GetVSCostDefault(SeedType theSeedType) {
         case SeedType::SEED_ZOMBIE_SNORKEL:
         case SeedType::SEED_ZOMBIE_DOLPHIN_RIDER:
         case SeedType::SEED_ZOMBIE_JALAPENO_HEAD:
+        case SeedType::SEED_ZOMBIE_GATLINGPEA_HEAD:
+        case SeedType::SEED_ZOMBIE_CROSSING_GUARD:
             return 125;
         case SeedType::SEED_SNOWPEA:
         case SeedType::SEED_REPEATER:
@@ -2163,7 +2266,6 @@ static int GetVSCostDefault(SeedType theSeedType) {
         case SeedType::SEED_ZOMBIE_DANCER:
         case SeedType::SEED_ZOMBIE_DIGGER:
         case SeedType::SEED_ZOMBIE_LADDER:
-        case SeedType::SEED_ZOMBIE_GATLINGPEA_HEAD:
         case SeedType::SEED_ZOMBIE_TALLNUT_HEAD:
         case SeedType::SEED_ZOMBIE_GIGA_FOOTBALL:
         case SeedType::SEED_ZOMBIE_JACKSON:
@@ -2179,6 +2281,7 @@ static int GetVSCostDefault(SeedType theSeedType) {
         case SeedType::SEED_ZOMBIE_POGO:
             return 225;
         case SeedType::SEED_ZOMBIE_GARGANTUAR:
+        case SeedType::SEED_ZOMBIE_SUPER_NOVA_GARGANTUAR:
             return 250;
         case SeedType::SEED_MELONPULT:
         case SeedType::SEED_ZOMBIE_FLAG:
@@ -2218,6 +2321,8 @@ static int GetVSRefreshTimeDefault(SeedType theSeedType) {
             case SeedType::SEED_ZOMBIE_ZOMBLOB:
             case SeedType::SEED_ZOMBIE_DOGWALKER:
             case SeedType::SEED_ZOMBIE_TELEPORTATION:
+            case SeedType::SEED_ZOMBIE_CROSSING_GUARD:
+            case SeedType::SEED_ZOMBIE_SCIENTIST:
                 return 3000;
             case SeedType::SEED_ZOMBIE_NEWSPAPER:
             case SeedType::SEED_ZOMBIE_SCREEN_DOOR:
@@ -2231,6 +2336,7 @@ static int GetVSRefreshTimeDefault(SeedType theSeedType) {
             case SeedType::SEED_ZOMBIE_CATAPULT:
             case SeedType::SEED_ZOMBIE_GARGANTUAR:
             case SeedType::SEED_ZOMBIE_GIGA_GARGANTUAR:
+            case SeedType::SEED_ZOMBIE_SUPER_NOVA_GARGANTUAR:
                 return 6000;
             default:
                 return 750;
@@ -2250,6 +2356,7 @@ static int GetVSRefreshTimeDefault(SeedType theSeedType) {
         case SeedType::SEED_THREEPEATER:
         case SeedType::SEED_STARFRUIT:
         case SeedType::SEED_MELONPULT:
+        case SeedType::SEED_AKEE:
             return 1500;
         default:
             return GetPlantDefinition(theSeedType).mRefreshTime;
@@ -2268,9 +2375,9 @@ static int GetVSCostBalanced(SeedType theSeedType) {
             aCost = 25;
             break;
         case SeedType::SEED_POTATOMINE:          // 25 -> 50
+        case SeedType::SEED_GRAVEBUSTER:         // 75 -> 50
         case SeedType::SEED_TANGLEKELP:          // 25 -> 50
         case SeedType::SEED_BLOVER:              // 100 -> 50
-        case SeedType::SEED_PUMPKINSHELL:        // 125 -> 50
         case SeedType::SEED_KERNELPULT:          // 100 -> 50
         case SeedType::SEED_ZOMBIE_TRAFFIC_CONE: // 75 -> 50
         case SeedType::SEED_ZOMBIE_BOBSLED:      // 75 -> 50
@@ -2278,7 +2385,10 @@ static int GetVSCostBalanced(SeedType theSeedType) {
             break;
         case SeedType::SEED_PEASHOOTER:           // 100 -> 75
         case SeedType::SEED_SPIKEWEED:            // 100 -> 75
+        case SeedType::SEED_PUMPKINSHELL:         // 125 -> 75
+        case SeedType::SEED_CABBAGEPULT:          // 100 -> 75
         case SeedType::SEED_UMBRELLA:             // 100 -> 75
+        case SeedType::SEED_SPORESHROOM:          // 100 -> 75
         case SeedType::SEED_ZOMBIE_POLEVAULTER:   // 100 -> 75
         case SeedType::SEED_ZOMBIE_DOLPHIN_RIDER: // 125 -> 75
         case SeedType::SEED_ZOMBIE_EXPLORER:      // 100 -> 75
@@ -2291,6 +2401,7 @@ static int GetVSCostBalanced(SeedType theSeedType) {
             aCost = 100;
             break;
         case SeedType::SEED_SNOWPEA:                 // 150 -> 125
+        case SeedType::SEED_ZOMBIE_DANCER:           // 150 -> 125
         case SeedType::SEED_ZOMBONI:                 // 175 -> 125
         case SeedType::SEED_ZOMBIE_DIGGER:           // 150 -> 125
         case SeedType::SEED_ZOMBIE_LADDER:           // 150 -> 125
@@ -2369,18 +2480,17 @@ static int GetVSRefreshTimeBalanced(SeedType theSeedType) {
         case SeedType::SEED_REPEATER:               // 7.5 -> 15
         case SeedType::SEED_PUFFSHROOM:             // 7.5 -> 15
         case SeedType::SEED_CACTUS:                 // 7.5 -> 15
+        case SeedType::SEED_CABBAGEPULT:            // 7.5 -> 15
         case SeedType::SEED_KERNELPULT:             // 7.5 -> 15
+        case SeedType::SEED_SPORESHROOM:            // 7.5 -> 15
         case SeedType::SEED_ZOMBIE_NORMAL:          // 7.5 -> 15
         case SeedType::SEED_ZOMBIE_JACK_IN_THE_BOX: // 30 -> 15
         case SeedType::SEED_ZOMBIE_SNORKEL:         // 7.5 -> 15
             return 1500;
-        case SeedType::SEED_TORCHWOOD:            // 7.5 -> 30
         case SeedType::SEED_SPIKEWEED:            // 7.5 -> 30
         case SeedType::SEED_UMBRELLA:             // 7.5 -> 30
         case SeedType::SEED_ZOMBIE_DOLPHIN_RIDER: // 7.5 -> 30
             return 3000;
-        case SeedType::SEED_PUMPKINSHELL: // 30 -> 60
-            return 6000;
         default:
             return aRefreshTime;
     }
@@ -2571,7 +2681,7 @@ bool Plant::IsFlying(SeedType theSeedType) {
 
 bool Plant::IsLobber(SeedType theSeedType) {
     return theSeedType == SeedType::SEED_CABBAGEPULT || theSeedType == SeedType::SEED_KERNELPULT || theSeedType == SeedType::SEED_MELONPULT || theSeedType == SeedType::SEED_WINTERMELON
-        || theSeedType == SeedType::SEED_SPORESHROOM;
+        || theSeedType == SeedType::SEED_SPORESHROOM || theSeedType == SeedType::SEED_AKEE;
 }
 
 bool Plant::IsUpgrade(SeedType theSeedType) {
@@ -2593,7 +2703,7 @@ bool Plant::IsUpgrade(SeedType theSeedType) {
 
 bool Plant::IsDefender(SeedType theSeedType) {
     return theSeedType == SeedType::SEED_WALLNUT || theSeedType == SeedType::SEED_TALLNUT || theSeedType == SeedType::SEED_PUMPKINSHELL || theSeedType == SeedType::SEED_SWEET_POTATO
-        || theSeedType == SeedType::SEED_PEANUT;
+        || theSeedType == SeedType::SEED_PEANUT || theSeedType == SeedType::SEED_ENDURIAN;
 }
 
 Rect Plant::GetPlantRect() {
@@ -2664,6 +2774,11 @@ Rect Plant::GetPlantAttackRect(PlantWeapon thePlantWeapon) {
             case SeedType::SEED_BONK_CHOY:
                 aRect = Rect(mX - 95, mY, 270, mHeight);
                 break;
+            case SeedType::SEED_ENDURIAN: {
+                Plant *aPumpkin = mBoard->GetPumpkinAt(mPlantCol, mRow);
+                aRect = aPumpkin != nullptr ? aPumpkin->GetPlantRect() : GetPlantRect();
+                break;
+            }
             default:
                 aRect = Rect(mX + 60, mY, BOARD_WIDTH, mHeight);
                 break;
@@ -2795,7 +2910,7 @@ bool Plant::MakesSun() const {
 }
 
 void Plant::UpdateProductionPlant() {
-    if (mApp->mGameMode == GAMEMODE_MP_VS && (gTcpConnected || gTcpClientSocket >= 0 || gIsServerModeSpectator || gIsReplayMode)) {
+    if (IsRemoteClientOrViewer() || IsRemoteServer()) {
         if (!IsInPlay()) {
             return;
         }
@@ -2825,14 +2940,14 @@ void Plant::UpdateProductionPlant() {
         if (mLaunchCounter <= 0)
         // 生产
         {
-            if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode) {
+            if (IsRemoteClientOrViewer()) {
                 return;
             }
             mLaunchCounter = RandRangeInt(mLaunchRate - 150, mLaunchRate);
             if ((mSeedType == SeedType::SEED_SUNFLOWER || mSeedType == SeedType::SEED_SUNSHROOM) && vsai::HasEnhancedAIProduction(mBoard, vsai::VSSide::Plants)) {
                 mLaunchCounter = vsai::ScaleEnhancedAIProductionCooldown(mLaunchCounter);
             }
-            if (gTcpClientSocket >= 0) {
+            if (IsRemoteServer()) {
                 U16U16_Event event = {{EventType::EVENT_SERVER_BOARD_PLANT_LAUNCHCOUNTER}, uint16_t(mBoard->mPlants.DataArrayGetID(this)), uint16_t(mLaunchCounter)};
                 netplay::PutEvent(event);
             }
@@ -2970,7 +3085,7 @@ void Plant::UpdateShooting() {
         } else if (mState == PlantState::STATE_CACTUS_LOW) {
             Fire(nullptr, mRow, PlantWeapon::WEAPON_SECONDARY, nullptr);
         } else if (mSeedType == SeedType::SEED_CABBAGEPULT || mSeedType == SeedType::SEED_KERNELPULT || mSeedType == SeedType::SEED_MELONPULT || mSeedType == SeedType::SEED_WINTERMELON
-                   || mSeedType == SeedType::SEED_SPORESHROOM) {
+                   || mSeedType == SeedType::SEED_SPORESHROOM || mSeedType == SeedType::SEED_AKEE) {
             PlantWeapon aPlantWeapon = PlantWeapon::WEAPON_PRIMARY;
             if (mState == PlantState::STATE_KERNELPULT_BUTTER) {
                 Reanimation *aBodyReanim = mApp->ReanimationGet(mBodyReanimID);
@@ -3080,7 +3195,7 @@ void Plant::UpdateShooting() {
 }
 
 void Plant::UpdateShooter() {
-    if (mApp->mGameMode == GAMEMODE_MP_VS && (gTcpConnected || gIsServerModeSpectator || gIsReplayMode)) {
+    if (IsRemoteClientOrViewer()) {
         return;
     }
 
@@ -3091,7 +3206,7 @@ void Plant::UpdateShooter() {
     }
     if (mLaunchCounter <= 0) {
         mLaunchCounter = mLaunchRate - Sexy::Rand(15);
-        if (gTcpClientSocket >= 0) {
+        if (IsRemoteServer()) {
             U16_Event event = {{EventType::EVENT_SERVER_BOARD_PLANT_SHOOTER_LAUNCH}, uint16_t(mBoard->mPlants.DataArrayGetID(this))};
             netplay::PutEvent(event);
         }
@@ -3168,9 +3283,12 @@ bool Plant::IsDisposable(SeedType theSeedType) {
 }
 
 bool Plant::IsInvulnerable() {
+    if (mSeedType == SeedType::SEED_ICEBERG_LETTUCE) {
+        return mState == PlantState::STATE_READY;
+    }
+
     if (mSeedType == SeedType::SEED_CHERRYBOMB || mSeedType == SeedType::SEED_ICESHROOM || mSeedType == SeedType::SEED_DOOMSHROOM || mSeedType == SeedType::SEED_JALAPENO
-        || mSeedType == SeedType::SEED_BLOVER || mSeedType == SeedType::SEED_ICEBERG_LETTUCE || mSeedType == SeedType::SEED_CHILLY_PEPPER || mState == PlantState::STATE_SQUASH_LOOK
-        || mState == PlantState::STATE_SQUASH_PRE_LAUNCH) {
+        || mSeedType == SeedType::SEED_BLOVER || mSeedType == SeedType::SEED_CHILLY_PEPPER || mState == PlantState::STATE_SQUASH_LOOK || mState == PlantState::STATE_SQUASH_PRE_LAUNCH) {
         if (!mIsAsleep) {
             return true;
         }
@@ -3240,7 +3358,7 @@ void Plant::SyncAnimationToClient() {
 
 bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon) {
     // 此函数用于在mLaunchCounter到0之后播放投手的投掷动画、豌豆的发射动画
-    if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode) {
+    if (IsRemoteClientOrViewer()) {
         return false;
     }
 
@@ -3274,7 +3392,7 @@ bool Plant::FindTargetAndFire(int theRow, PlantWeapon thePlantWeapon) {
     }
 
     if (result) {
-        if (gTcpClientSocket >= 0) {
+        if (IsRemoteServer()) {
 
             if (mSeedType == SEED_KERNELPULT) {
                 U8U8U16U16_Event event = {
@@ -3338,8 +3456,7 @@ void Plant::UpdateChomper() {
             Zombie *aZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY);
             bool doBite = false;
             if (aZombie) {
-                if (aZombie->mZombieType == ZombieType::ZOMBIE_GARGANTUAR || aZombie->mZombieType == ZombieType::ZOMBIE_REDEYE_GARGANTUAR || aZombie->mZombieType == ZombieType::ZOMBIE_BOSS
-                    || aZombie->mZombieType == ZombieType::ZOMBIE_ZOMBLOB_SMALL || aZombie->mZombieType == ZombieType::ZOMBIE_GIGA_GARGANTUAR) {
+                if (aZombie->IsGargantuar() || aZombie->mZombieType == ZombieType::ZOMBIE_BOSS || aZombie->mZombieType == ZombieType::ZOMBIE_ZOMBLOB_SMALL) {
                     doBite = true;
                 }
             }
@@ -3359,10 +3476,10 @@ void Plant::UpdateChomper() {
             } else if (doMiss) {
                 mState = PlantState::STATE_CHOMPER_BITING_MISSED;
             } else {
-                if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode)
+                if (IsRemoteClientOrViewer())
                     return;
 
-                if (gTcpClientSocket >= 0) {
+                if (IsRemoteServer()) {
                     U16U16_Event event = {{EventType::EVENT_SERVER_BOARD_PLANT_CHOMPER_BIT}, uint16_t(mBoard->mPlants.DataArrayGetID(this)), uint16_t(mBoard->mZombies.DataArrayGetID(aZombie))};
                     netplay::PutEvent(event);
                 }
@@ -3474,10 +3591,10 @@ void Plant::UpdateMagnetShroom() {
         }
 
         if (aClosestZombie) {
-            if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode)
+            if (IsRemoteClientOrViewer())
                 return;
 
-            if (gTcpClientSocket >= 0) {
+            if (IsRemoteServer()) {
                 U16U16_Event event = {
                     {EventType::EVENT_SERVER_BOARD_PLANT_MAGNETSHROOM_ATTACK}, uint16_t(mBoard->mPlants.DataArrayGetID(this)), uint16_t(mBoard->mZombies.DataArrayGetID(aClosestZombie))};
                 netplay::PutEvent(event);
@@ -3509,10 +3626,10 @@ void Plant::UpdateMagnetShroom() {
         }
 
         if (aClosestLadder) {
-            if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode)
+            if (IsRemoteClientOrViewer())
                 return;
 
-            if (gTcpClientSocket >= 0) {
+            if (IsRemoteServer()) {
                 U16U16_Event event = {
                     {EventType::EVENT_SERVER_BOARD_PLANT_MAGNETSHROOM_ATTACK_LADDER}, uint16_t(mBoard->mPlants.DataArrayGetID(this)), uint16_t(mBoard->mGridItems.DataArrayGetID(aClosestLadder))};
                 netplay::PutEvent(event);
@@ -3537,9 +3654,8 @@ void Plant::UpdateMagnetShroom() {
 
 void Plant::UpdateSquash() {
     // mApp->ReanimationTryToGet(mBodyReanimID); // disassembled code
-    bool isRemoteClient = mApp->IsVSMode() && (gTcpConnected || gIsServerModeSpectator || gIsReplayMode);
     auto syncSquashState = [this]() {
-        if (gTcpClientSocket < 0) {
+        if (!IsRemoteServer()) {
             return;
         }
         U16U16I16I16_Event event{};
@@ -3552,7 +3668,7 @@ void Plant::UpdateSquash() {
     };
 
     if (mState == PlantState::STATE_NOTREADY) {
-        if (isRemoteClient) {
+        if (IsRemoteClientOrViewer()) {
             return;
         }
         Zombie *aZombie = FindSquashTarget();
@@ -3566,7 +3682,7 @@ void Plant::UpdateSquash() {
             syncSquashState();
         }
     } else if (mState == PlantState::STATE_SQUASH_LOOK) {
-        if (isRemoteClient) {
+        if (IsRemoteClientOrViewer()) {
             return;
         }
         if (mStateCountdown <= 0) {
@@ -3579,7 +3695,7 @@ void Plant::UpdateSquash() {
         if (mStateCountdown == 1) {
             TriggerVibration(VibrationEffect::VIBRATION_JUMP); // 这窝瓜有力气!!
         }
-        if (isRemoteClient) {
+        if (IsRemoteClientOrViewer()) {
             return;
         }
         if (mStateCountdown <= 0) {
@@ -3640,9 +3756,8 @@ void Plant::UpdateSquash() {
 }
 
 void Plant::UpdateIcebergLettuce() {
-    bool isRemoteClient = mApp->IsVSMode() && (gTcpConnected || gIsServerModeSpectator || gIsReplayMode);
     auto syncIcebergLettuceState = [this]() {
-        if (gTcpClientSocket < 0) {
+        if (!IsRemoteServer()) {
             return;
         }
         U16_Event event{};
@@ -3652,7 +3767,7 @@ void Plant::UpdateIcebergLettuce() {
     };
 
     if (mState == PlantState::STATE_NOTREADY) {
-        if (isRemoteClient) {
+        if (IsRemoteClientOrViewer()) {
             return;
         }
         if (Zombie *aZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY)) {
@@ -3665,12 +3780,12 @@ void Plant::UpdateIcebergLettuce() {
         }
     } else if (mState == PlantState::STATE_READY) {
         if (mStateCountdown <= 0) {
-            if (gTcpConnected || gIsServerModeSpectator || gIsReplayMode) {
+            if (IsRemoteClientOrViewer()) {
                 return;
             }
 
             Zombie *aZombie = mBoard->ZombieGet(mTargetZombieID);
-            if (gTcpClientSocket >= 0) {
+            if (IsRemoteServer()) {
                 U16U16_Event event = {{EventType::EVENT_SERVER_BOARD_PLANT_ICE_A_ZOMBIE},
                                       uint16_t(mBoard->mPlants.DataArrayGetID(this)),
                                       aZombie == nullptr ? NETPLAY_ZOMBIE_ID_NULL : uint16_t(mBoard->mZombies.DataArrayGetID(aZombie))};

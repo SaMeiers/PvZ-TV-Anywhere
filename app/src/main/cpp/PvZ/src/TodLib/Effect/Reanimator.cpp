@@ -121,6 +121,12 @@ static ReanimationParams gExtendedReanimationParamArray[] = {
     {ReanimationType::REANIM_ZOMBIE_TELEPORTATION, "addonFiles/compiled/reanim/Zombie_teleportation.reanim", 0},
     {ReanimationType::REANIM_TELEPORTATION, "addonFiles/compiled/reanim/teleportation.reanim", 0},
     {ReanimationType::REANIM_TELEPORTATION_BULLET_FLASH, "addonFiles/compiled/reanim/teleportation_bullet_flash.reanim", 0},
+    {ReanimationType::REANIM_SUPER_NOVA_GARGANTUAR, "addonFiles/compiled/reanim/Zombie_super_nova_gargantuar.reanim", 0},
+    {ReanimationType::REANIM_SUPER_NOVA, "addonFiles/compiled/reanim/super_nova.reanim", 0},
+    {ReanimationType::REANIM_ZOMBIE_CROSSING_GUARD, "addonFiles/compiled/reanim/Zombie_crossing_guard.reanim", 0},
+    {ReanimationType::REANIM_ZOMBIE_SCIENTIST, "addonFiles/compiled/reanim/Zombie_scientist.reanim", 0},
+    {ReanimationType::REANIM_HEAL_PARTICLES, "addonFiles/compiled/reanim/heal_particles.reanim", 0},
+    {ReanimationType::REANIM_HEAL_MIST, "addonFiles/compiled/reanim/heal_mist.reanim", 0},
     {ReanimationType::REANIM_ICEBERG_LETTUCE, "addonFiles/compiled/reanim/IcebergLettuce.reanim", 0},
     {ReanimationType::REANIM_CELERY_STALKER, "addonFiles/compiled/reanim/CeleryStalker.reanim", 0},
     {ReanimationType::REANIM_SPORE_SHROOM, "addonFiles/compiled/reanim/SporeShroom.reanim", 0},
@@ -132,7 +138,9 @@ static ReanimationParams gExtendedReanimationParamArray[] = {
     {ReanimationType::REANIM_CHILOOSH, "addonFiles/compiled/reanim/chiloosh.reanim", 0},
     {ReanimationType::REANIM_SUN_BEAN, "addonFiles/compiled/reanim/SunBean.reanim", 0},
     {ReanimationType::REANIM_PEANUT, "addonFiles/compiled/reanim/Peanut.reanim", 0},
+    {ReanimationType::REANIM_ENDURIAN, "addonFiles/compiled/reanim/Endurian.reanim", 0},
     {ReanimationType::REANIM_IMP_PEAR, "addonFiles/compiled/reanim/ImpPear.reanim", 0},
+    {ReanimationType::REANIM_AKEE, "addonFiles/compiled/reanim/AKEE.reanim", 0},
     {ReanimationType::REANIM_APPLE_CLOCK, "addonFiles/compiled/reanim/apple_clock.reanim", 0},
 };
 

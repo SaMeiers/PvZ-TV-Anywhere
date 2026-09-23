@@ -27,6 +27,7 @@
 #include "PvZ/Lawn/Board/Board.h"
 #include "PvZ/Lawn/Board/Challenge.h"
 #include "PvZ/Lawn/LawnApp.h"
+#include "PvZ/Lawn/Widget/NetplayLobbyWidget.h"
 #include "PvZ/Lawn/Widget/VSResultsMenu.h"
 #include "PvZ/Lawn/Widget/VSSetupAddonWidget.h"
 #include "PvZ/SexyAppFramework/Graphics/Font.h"
@@ -721,7 +722,7 @@ void WaitForSecondPlayerDialog::RefreshButtons() {
             if (mIsCreatingRoom) {
                 // left: 设置端口
                 mLeftButton->SetLabel("[SET_ROOM_PORT]");
-                mLeftButton->mDisabled = (gTcpClientSocket != -1);
+                mLeftButton->mDisabled = IsRemoteServer();
 
                 // right: 退出房间
                 mRightButton->SetLabel("[EXIT_ROOM_BUTTON]");
@@ -729,7 +730,7 @@ void WaitForSecondPlayerDialog::RefreshButtons() {
 
                 // Yes: 开始游戏（有人加入才可点）
                 mLawnYesButton->SetLabel("[START_GAME]");
-                mLawnYesButton->mDisabled = (gTcpClientSocket == -1);
+                mLawnYesButton->mDisabled = !IsRemoteServer();
 
                 // No: 返回模式选择
                 mLawnNoButton->SetLabel("[BACK_TO_MODE_SELECT]");
@@ -926,6 +927,80 @@ void WaitForSecondPlayerDialog::CloseReplayManageWidget() {
     mReplayManageWidget = nullptr;
 }
 
+void WaitForSecondPlayerDialog::CloseNetplayLobbyWidget() {
+    if (mNetplayLobbyWidget == nullptr) {
+        return;
+    }
+    RemoveWidget(mNetplayLobbyWidget);
+    delete mNetplayLobbyWidget;
+    mNetplayLobbyWidget = nullptr;
+}
+
+int WaitForSecondPlayerDialog::GetLobbyServerTargetCount() const {
+    int count = 2;
+    if (mApp == nullptr || mApp->mPlayerInfo == nullptr) {
+        return count;
+    }
+    for (int i = 0; i < kMode3ServerRecentCount; ++i) {
+        char address[kMode3ServerTargetMaxLen]{};
+        if (Mode3LoadRecentServer(mApp->mPlayerInfo, i, address)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool WaitForSecondPlayerDialog::GetLobbyServerTargetAddress(int index, char *outAddress, int outSize) const {
+    if (outAddress == nullptr || outSize <= 0) {
+        return false;
+    }
+    outAddress[0] = '\0';
+    const char *address = nullptr;
+    char recentAddress[kMode3ServerTargetMaxLen]{};
+    if (index == 0) {
+        address = kOfficialServer1Addr;
+    } else if (index == 1) {
+        address = kOfficialServer2Addr;
+    } else if (mApp != nullptr && mApp->mPlayerInfo != nullptr && Mode3LoadRecentServer(mApp->mPlayerInfo, index - 2, recentAddress)) {
+        address = recentAddress;
+    }
+    if (address == nullptr) {
+        return false;
+    }
+    std::strncpy(outAddress, address, static_cast<size_t>(outSize - 1));
+    outAddress[outSize - 1] = '\0';
+    return true;
+}
+
+bool WaitForSecondPlayerDialog::ConnectLobbyServerTarget(int index) {
+    if (index < 0 || index >= GetLobbyServerTargetCount()) {
+        return false;
+    }
+    mSelectedRoomIndex_Server = index;
+    return Mode3ConnectSelectedTarget(this);
+}
+
+void WaitForSecondPlayerDialog::OpenCustomServerInput() {
+    if (mUIMode != UIMode::MODE3_SERVER) {
+        SetMode(UIMode::MODE3_SERVER);
+    }
+    mInputPurpose = InputPurpose::SERVER_CONNECT_ADDR;
+    ShowTextInput("[INPUT_TITLE_CONNECT_SERVER]", "[HINT_IP_PORT]");
+}
+
+void WaitForSecondPlayerDialog::ExitNetplayLobby() {
+    if (mUIMode == UIMode::MODE3_SERVER) {
+        if (mServerHosting) {
+            ServerSendExitRoom();
+        } else if (mServerJoined || mServerSpectating) {
+            ServerSendLeaveRoom();
+        }
+        ServerDisconnect("leave netplay lobby");
+    }
+    SetMode(UIMode::MODE1_INIT);
+    LawnDialog::ButtonDepress(WaitForSecondPlayerDialog_Back);
+}
+
 WaitForSecondPlayerDialog *WaitForSecondPlayerDialog::GetInstance() {
     return gWaitForSecondPlayerDialogInstance;
 }
@@ -974,10 +1049,10 @@ void WaitForSecondPlayerDialog::_constructor(LawnApp *theApp) {
     mRightButton->mWidth = mLawnNoButton->mWidth;
     mRightButton->mHeight = mLawnNoButton->mHeight;
 
-    InitUdpScanSocket();
     mIsCreatingRoom = false;
     mIsJoiningRoom = false;
     mReplayManageWidget = nullptr;
+    mNetplayLobbyWidget = nullptr;
 
     mSelectedServerIndex = 0;
     mUseManualTarget = false;
@@ -1080,6 +1155,16 @@ void WaitForSecondPlayerDialog::_constructor(LawnApp *theApp) {
     mServerP2PStatusText = "P2P: idle";
 
     SetMode(UIMode::MODE1_INIT);
+
+    // Keep this hooked dialog as the networking/state owner, but replace its
+    // original 800x600 presentation with a dedicated fullscreen lobby.
+    mLawnYesButton->SetVisible(false);
+    mLawnNoButton->SetVisible(false);
+    mLeftButton->SetVisible(false);
+    mRightButton->SetVisible(false);
+    mNetplayLobbyWidget = new NetplayLobbyWidget(this);
+    AddWidget(mNetplayLobbyWidget);
+    SetMode(UIMode::MODE2_WIFI);
 }
 
 WaitForSecondPlayerDialog::~WaitForSecondPlayerDialog() {
@@ -1087,6 +1172,7 @@ WaitForSecondPlayerDialog::~WaitForSecondPlayerDialog() {
         gWaitForSecondPlayerDialogInstance = nullptr;
     }
     CloseReplayManageWidget();
+    CloseNetplayLobbyWidget();
     ServerDisconnect("dialog destroy");
     old_WaitForSecondPlayerDialog__destructorAddr(this);
 }
@@ -1096,6 +1182,7 @@ void WaitForSecondPlayerDialog::_destructor() {
         gWaitForSecondPlayerDialogInstance = nullptr;
     }
     CloseReplayManageWidget();
+    CloseNetplayLobbyWidget();
     ServerDisconnect("dialog destroy");
     mServerP2PStatusText.~basic_string();
     mServerStatusText.~basic_string();
@@ -1146,7 +1233,7 @@ void WaitForSecondPlayerDialog::Draw(Graphics *g) {
             TodDrawString(g, str2, 400, lineY, g->GetFont(), g->GetColor(), DS_ALIGN_CENTER);
 
             // 是否有玩家加入
-            if (gTcpClientSocket == -1) {
+            if (!IsRemoteServer()) {
                 pvzstl::string str3 = TodStringTranslate("[WAIT_OTHER_JOIN]");
                 TodDrawString(g, str3, 400, lineY + 50, g->GetFont(), g->GetColor(), DS_ALIGN_CENTER);
             } else {
@@ -1165,7 +1252,7 @@ void WaitForSecondPlayerDialog::Draw(Graphics *g) {
             if (mUseManualTarget) {
                 // 手动连接
 
-                if (gTcpConnected) {
+                if (IsRemoteClient()) {
                     pvzstl::string joinedFmt = TodStringTranslate("[JOINED_MANUAL_FMT]");
                     pvzstl::string str3 = StrFormat(joinedFmt.c_str(), gSecondPlayerName);
                     TodDrawString(g, str3, 400, 150, g->GetFont(), g->GetColor(), DS_ALIGN_CENTER);
@@ -1188,7 +1275,7 @@ void WaitForSecondPlayerDialog::Draw(Graphics *g) {
                 if (gScannedServerCount <= 0) {
                     TodDrawString(g, TodStringTranslate("[NO_AVAILABLE_ROOMS]"), 400, 150, g->GetFont(), g->GetColor(), DS_ALIGN_CENTER);
                 } else {
-                    pvzstl::string fmtJoin = TodStringTranslate(gTcpConnected ? "[JOINED_ROOM_FMT]" : "[JOINING_ROOM_FMT]");
+                    pvzstl::string fmtJoin = TodStringTranslate(IsRemoteClient() ? "[JOINED_ROOM_FMT]" : "[JOINING_ROOM_FMT]");
                     pvzstl::string str = StrFormat(fmtJoin.c_str(), gServers[idx].name);
                     TodDrawString(g, str, 400, 150, g->GetFont(), g->GetColor(), DS_ALIGN_CENTER);
                     TodDrawString(g, StrFormat("IP: %s:%d", gServers[idx].ip, gServers[idx].tcpPort), 400, 200, g->GetFont(), g->GetColor(), DS_ALIGN_CENTER);
@@ -1535,7 +1622,7 @@ void WaitForSecondPlayerDialog::Update() {
 
         // 创建房间时：开始游戏按钮是否可点
         if (mIsCreatingRoom) {
-            mLawnYesButton->mDisabled = (gTcpClientSocket == -1);
+            mLawnYesButton->mDisabled = !IsRemoteServer();
         }
 
         // UDP 广播/扫描节拍
@@ -1552,7 +1639,7 @@ void WaitForSecondPlayerDialog::Update() {
         if (gTcpListenSocket >= 0) {
             CheckTcpAccept();
         }
-        if (mIsJoiningRoom && !gTcpConnected) {
+        if (mIsJoiningRoom && !IsRemoteClient()) {
             TryTcpConnect();
         }
     }
@@ -2046,7 +2133,7 @@ void WaitForSecondPlayerDialog::UdpBroadcastRoom() {
 bool WaitForSecondPlayerDialog::CheckTcpAccept() {
     if (gTcpListenSocket < 0)
         return false;
-    if (gTcpClientSocket >= 0) {
+    if (IsRemoteServer()) {
         return true;
     }
     sockaddr_in clientAddr{};
@@ -2178,7 +2265,7 @@ void WaitForSecondPlayerDialog::ScanUdpBroadcastRoom() {
 }
 
 void WaitForSecondPlayerDialog::TryTcpConnect() {
-    if (gTcpConnected || gIsReplayMode)
+    if (IsRemoteClient() || gIsReplayMode)
         return;
 
     // 既不是手动目标，也没有扫描到房间，就没法连
@@ -2328,7 +2415,7 @@ void WaitForSecondPlayerDialog::ButtonDepress_Thunk(this ButtonListener &self, i
                     if (aDialog->mIsCreatingRoom) {
                         // 开始游戏（房主）：根据是否有玩家加入决定是否可点（RefreshButtons里已禁用）
                         aDialog->LawnDialog::ButtonDepress(WaitForSecondPlayerDialog_Enter);
-                        if (gTcpClientSocket >= 0) {
+                        if (IsRemoteServer()) {
                             BaseEvent event = {EventType::EVENT_WAITFORSECONDPALYER_START_GAME};
                             netplay::PutEvent(event);
                         }
@@ -2390,7 +2477,7 @@ void WaitForSecondPlayerDialog::ButtonDepress_Thunk(this ButtonListener &self, i
                     aDialog->RefreshButtons();
                     return;
                 }
-                if (aUIMode == UIMode::MODE3_SERVER && gTcpConnected && gIsServerModeSpectator) {
+                if (aUIMode == UIMode::MODE3_SERVER && IsRemoteClient() && gIsServerModeSpectator) {
                     aDialog->mApp->ClearSecondPlayer();
                 }
                 if (aDialog->ServerHostRoomLocked()) {
@@ -2510,6 +2597,31 @@ void WaitForSecondPlayerDialog::ButtonDepress_Thunk(this ButtonListener &self, i
             return;
         case WaitForSecondPlayerDialog::WaitForSecondPlayerDialog_ReplayClose:
             aDialog->CloseReplayManageWidget();
+            return;
+        case NetplayLobbyWidget::NetplayLobbyWidget_AddServer:
+            if (!aDialog->mIsCreatingRoom && !aDialog->mIsJoiningRoom && !aDialog->mServerConnecting && !aDialog->mServerHosting && !aDialog->mServerJoined && !aDialog->mServerSpectating) {
+                aDialog->OpenCustomServerInput();
+            }
+            return;
+        case NetplayLobbyWidget::NetplayLobbyWidget_ReplayManage:
+            if (!aDialog->mIsCreatingRoom && !aDialog->mIsJoiningRoom && !aDialog->mServerConnected && !aDialog->mServerConnecting) {
+                aDialog->OpenReplayManageWidget();
+            }
+            return;
+        case NetplayLobbyWidget::NetplayLobbyWidget_LocalBattle:
+            if (!aDialog->mIsCreatingRoom && !aDialog->mIsJoiningRoom && !aDialog->mServerConnecting && !aDialog->mServerHosting && !aDialog->mServerJoined && !aDialog->mServerSpectating) {
+                aDialog->SetMode(UIMode::MODE1_INIT);
+                aDialog->LawnDialog::ButtonDepress(WaitForSecondPlayerDialog_Enter);
+            }
+            return;
+        case NetplayLobbyWidget::NetplayLobbyWidget_Back:
+            aDialog->ExitNetplayLobby();
+            return;
+        case NetplayLobbyWidget::NetplayLobbyWidget_PrimaryAction:
+            aDialog->ButtonDepress_Thunk(WaitForSecondPlayerDialog_Enter);
+            return;
+        case NetplayLobbyWidget::NetplayLobbyWidget_RoomOption:
+            aDialog->ButtonDepress_Thunk(WaitForSecondPlayerDialog_Back);
             return;
         default:
             break;
@@ -3825,10 +3937,11 @@ void WaitForSecondPlayerDialog::DrawServerRoomList(Sexy::Graphics *g) {
         pvzstl::string probeTag = TodStringTranslate(r.hostProbeDone ? "[P2P_READY]" : "[P2P_NOT_READY]");
         tag = tag.empty() ? probeTag : tag + ' ' + probeTag;
 
-        if (r.spectateAllowed && r.full) {
-            tag = TodStringTranslate("[SPECTATE]");
+        const bool canSpectate = r.spectateAllowed && r.full;
+        if (canSpectate) {
+            tag = TodStringTranslate(r.gaming ? "[SPECTATE_QUEUE_AVAILABLE]" : "[SPECTATE_AVAILABLE]");
         }
-        if (r.gaming) {
+        if (r.gaming && !canSpectate) {
             tag = tag.empty() ? TodStringTranslate("[ROOM_STARTED]") : tag + ' ' + TodStringTranslate("[ROOM_STARTED]");
         }
 
@@ -4155,13 +4268,17 @@ bool WaitForSecondPlayerDialog::ServerConnectFromInput() {
     if (mApp && mApp->mPlayerInfo) {
         const std::string normalizedAddr = ip + ':' + std::to_string(port);
         Mode3RememberRecentServer(mApp->mPlayerInfo, normalizedAddr);
+        if (mNetplayLobbyWidget != nullptr) {
+            // The newly entered endpoint is always moved to recent-server slot 0.
+            mNetplayLobbyWidget->mSelectedServerListIndex = 3;
+        }
     }
 
     return Mode3ConnectToTarget(this, ip, port);
 }
 
 void WaitForSecondPlayerDialog::ServerDisconnect([[maybe_unused]] const char *why) {
-    const bool hasActiveVsSocket = (gTcpClientSocket >= 0) || gTcpConnected || (gTcpServerSocket >= 0);
+    const bool hasActiveVsSocket = IsRemoteServer() || IsRemoteClient() || (gTcpServerSocket >= 0);
     CloseSocketFd(mServerSock);
     Mode3ResetTargetLatencyProbes(this);
     ServerResetP2PState(false);

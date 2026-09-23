@@ -218,12 +218,17 @@ void LawnApp::LoadAddonImages() {
     addonImages.IMAGE_GIGA_ZOMBIEPOLEVAULTERHEAD = GetImageByFileName("addonFiles/particles/ExtendedZombies/ZombieGigaPolevaulterHead");
     addonImages.IMAGE_REANIM_ZOMBIE_EXPLORER_HEAD = GetImageByFileName("addonFiles/particles/ExtendedZombies/ZombieExplorerHead");
     addonImages.IMAGE_REANIM_ZOMBIE_DOGWALKER_HEAD = GetImageByFileName("addonFiles/particles/ExtendedZombies/ZombieDogWalkerHead");
-    addonImages.IMAGE_REANIM_ZOMBIE_TELEPORTATION_HEAD = GetImageByFileName("addonFiles/particles/ExtendedZombies/ZombieTeleportationHead");
+    addonImages.IMAGE_ZOMBIE_TELEPORTATION_HEAD = GetImageByFileName("addonFiles/particles/ExtendedZombies/ZombieTeleportationHead");
+    addonImages.IMAGE_ZOMBIE_CROSSING_GUARD_ARM = GetImageByFileName("addonFiles/particles/ExtendedZombies/ZombieCrossingGuardArm");
+    addonImages.IMAGE_ZOMBIE_CROSSING_GUARD_HEAD = GetImageByFileName("addonFiles/particles/ExtendedZombies/ZombieCrossingGuardHead");
+    addonImages.IMAGE_ZOMBIE_SCIENTIST_HEAD = GetImageByFileName("addonFiles/particles/ExtendedZombies/ZombieScientistHead");
+    addonImages.IMAGE_REANIM_ZOMBIE_CROSSING_GUARD_HAT = GetImageByFileName("addonFiles/reanim/ExtendedZombies/zombie_crossing_guard_hat");
     addonImages.IMAGE_PROJECTILEPOLE = GetImageByFileName("addonFiles/images/ExtendedZombies/Zombie_giga_polevaulter_pole");
     addonImages.IMAGE_PROJECTILEZOMBLOB = GetImageByFileName("addonFiles/images/ExtendedZombies/zombie_zomblob_split");
     addonImages.IMAGE_PROJECTILESPORE = GetImageByFileName("addonFiles/images/ProjectileSpore");
     addonImages.IMAGE_PROJECTILEBOOMERANG = GetImageByFileName("addonFiles/images/ProjectileBoomerang");
     addonImages.IMAGE_PROJECTILETELEPORTATION = GetImageByFileName("addonFiles/images/ProjectileTeleportation");
+    addonImages.IMAGE_PROJECTILEACKEE = GetImageByFileName("addonFiles/images/ProjectileAckee");
     addonImages.IMAGE_REANIM_ZOMBLOBHEAD_BUTTERED = GetImageByFileName("addonFiles/reanim/ExtendedZombies/zombiezomblobhead_buttered");
     addonImages.IMAGE_REANIM_ZOMBIE_ZOMBLOB_BODY_BUTTERED = GetImageByFileName("addonFiles/reanim/ExtendedZombies/zombie_zomblob_body_buttered");
     addonImages.IMAGE_REANIM_ZOMBIE_ZOMBLOB_BODY_DYING_BUTTERED = GetImageByFileName("addonFiles/reanim/ExtendedZombies/zombie_zomblob_body_dying_buttered");
@@ -268,6 +273,9 @@ void LawnApp::LoadAddonImages() {
     addonImages.IMAGE_REANIM_ZOMBIE_DOGWALKER_OUTERARM_UPPER2 = GetImageByFileName("addonFiles/reanim/ExtendedZombies/zombie_dogwalker_outerarm_upper2");
     addonImages.IMAGE_REANIM_ZOMBIE_TELEPORTATION_OUTERARM_UPPER2 = GetImageByFileName("addonFiles/reanim/ExtendedZombies/zombie_teleportation_outerarm_upper2");
     addonImages.IMAGE_REANIM_ZOMBIE_TELEPORTATION_TELEPHONE = GetImageByFileName("addonFiles/reanim/ExtendedZombies/zombie_teleportation_telephone");
+    addonImages.IMAGE_REANIM_ZOMBIE_CROSSING_GUARD_OUTERARM_UPPER2 = GetImageByFileName("addonFiles/reanim/ExtendedZombies/zombie_crossing_guard_outerarm_upper2");
+    addonImages.IMAGE_REANIM_ZOMBIE_SCIENTIST_OUTERARM_UPPER2 = GetImageByFileName("addonFiles/reanim/ExtendedZombies/zombie_scientist_outerarm_upper2");
+    addonImages.IMAGE_REANIM_ZOMBIE_SCIENTIST_HAND = GetImageByFileName("addonFiles/reanim/ExtendedZombies/zombie_scientist_hand");
     addonImages.IMAGE_REANIM_CELERY_STALKER_ARM2_LOWER2 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/celery_stalker_arm2_lower2");
     addonImages.IMAGE_REANIM_CELERY_STALKER_ARM2_LOWER3 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/celery_stalker_arm2_lower3");
     addonImages.IMAGE_REANIM_CELERY_STALKER_ARM2_UPPER2 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/celery_stalker_arm2_upper2");
@@ -279,6 +287,10 @@ void LawnApp::LoadAddonImages() {
     addonImages.IMAGE_REANIM_SWEET_POTATO_EYE3 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/sweet_potato_eye3");
     addonImages.IMAGE_REANIM_PEANUT_HEAD1_2 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/peanut_head1_2");
     addonImages.IMAGE_REANIM_PEANUT_HEAD2_2 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/peanut_head2_2");
+    addonImages.IMAGE_REANIM_ENDURIAN_BODY2 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/endurian_body2");
+    addonImages.IMAGE_REANIM_ENDURIAN_BODY3 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/endurian_body3");
+    addonImages.IMAGE_REANIM_ENDURIAN_EYE2 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/endurian_eye2");
+    addonImages.IMAGE_REANIM_ENDURIAN_STEM2 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/endurian_stem2");
     addonImages.IMAGE_REANIM_ICE1 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/ice1");
     addonImages.IMAGE_REANIM_ICE2 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/ice2");
     addonImages.IMAGE_REANIM_ICE3 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/ice3");
@@ -683,7 +695,7 @@ void LawnApp::UpdateFrames() {
     if (replayActive && !replayPaused) {
         runReplayFrame = replay::ConsumePlaybackFrameStep();
     }
-    if ((gTcpClientSocket >= 0 || gTcpConnected || replay::IsPlaybackActive()) && !replayPaused) {
+    if ((IsRemoteServer() || IsRemoteClient() || replay::IsPlaybackActive()) && !replayPaused) {
         ++gNetPingNowTick;
         if (!gIsServerModeSpectator) {
             TickNetDelayAwaitingPong();
@@ -1029,6 +1041,7 @@ void LawnApp::_destructor() {
     delete addonFonts.PICO;
     delete addonFonts.JN_BOBO_HEI20;
     delete addonFonts.JN_BOBO_HEI24;
+    delete addonFonts.JN_BOBO_HEI36;
     delete addonFonts.TIEJILI_SC;
 
     old_LawnApp__destructor(this);
@@ -1183,6 +1196,7 @@ void LawnApp::LoadingThreadProc() {
     addonFonts.PICO = new FreeTypeFont(this, "addonFiles/data/Pico.ttf", 16, false, false, false);
     addonFonts.JN_BOBO_HEI20 = new FreeTypeFont(this, "addonFiles/data/JNBoBoHei.ttf", 20, false, false, false);
     addonFonts.JN_BOBO_HEI24 = new FreeTypeFont(this, "addonFiles/data/JNBoBoHei.ttf", 24, false, false, false);
+    addonFonts.JN_BOBO_HEI36 = new FreeTypeFont(this, "addonFiles/data/JNBoBoHei.ttf", 36, false, false, false);
     addonFonts.TIEJILI_SC = new FreeTypeFont(this, "addonFiles/data/TiejiliSC.ttf", 16, false, false, false);
 
     // //试图修复偶现的地图错位现象。不知道是否有效
@@ -1569,7 +1583,7 @@ void LawnApp::ShowVSResultsScreen() {
     mWidgetManager->AddWidget(mVSResultsMenu);
     mWidgetManager->BringToFront(mVSResultsMenu);
     mWidgetManager->SetFocus(mVSResultsMenu);
-    const bool connected = (gTcpConnected || gTcpClientSocket >= 0);
+    const bool connected = (IsRemoteClient() || IsRemoteServer());
     if (connected && !mVSResultsMenu->mIsReplaySession && !gIsServerModeSpectator) {
         mVSResultsMenu->mCheckboxController = new VSResultsCheckboxController();
         mVSResultsMenu->mCheckboxController->InitCheckboxWidget(mVSResultsMenu);
