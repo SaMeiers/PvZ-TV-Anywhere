@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The diagnostic build installs beside the normal one, so it says so on the
+     launcher; everything else comes from the main source set. -->
+<resources>
+    <string name="app_name">PvZ TV (diag)</string>
+</resources>
