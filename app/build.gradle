@@ -43,6 +43,15 @@ android {
             abiFilters "armeabi-v7a", "arm64-v8a"
         }
 
+        externalNativeBuild {
+            cmake {
+                // Devices with 16 KB pages (Android 15+) cannot map a library
+                // whose LOAD segments are only 4 KB aligned, which is what the
+                // r27 linker still produces by default.
+                arguments "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+            }
+        }
+
         buildConfigField("String", "GIT_BRANCH", "\"${gitBranch}\"")
         buildConfigField("String", "GIT_COMMIT_HASH", "\"${gitCommitHash}\"")
         buildConfigField("int", "GIT_COMMIT_NUM", gitCommitNum)
