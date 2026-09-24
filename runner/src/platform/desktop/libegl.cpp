@@ -1,3 +1,4 @@
+#include <pvz_tv/diagnostics.h>
 #include <pvz_tv/dependencies/dependency.h>
 #include <pvz_tv/surface.h>
 
@@ -195,8 +196,9 @@ void egl_swap_buffers(GuestCall &c) {
     static int s_swap_count = 0;
     static uint32_t s_event_buf = 0;
     static bool s_logged_app = false;
-    if (++s_swap_count <= 5 || (s_swap_count % 300 == 0)) {
-        printf("[*] eglSwapBuffers #%d\n", s_swap_count);
+    ++s_swap_count;
+    if (s_swap_count <= 5 || (s_swap_count % 300 == 0)) {
+        PVZTV_TRACE("[*] eglSwapBuffers #%d", s_swap_count);
     }
 
     if (!s_event_buf) {
@@ -217,8 +219,8 @@ void egl_swap_buffers(GuestCall &c) {
 
     if (appDriver && !s_logged_app) {
         s_logged_app = true;
-        printf("[+] PopCap LawnApp detected at 0x%08X (appDriver=0x%08X), input dispatcher ACTIVE!\n",
-               lawnApp, appDriver);
+        PVZTV_TRACE("[+] PopCap LawnApp detected at 0x%08X (appDriver=0x%08X), input dispatcher ACTIVE!",
+                    lawnApp, appDriver);
     }
 
     // Touch & Click reliable state tracking
@@ -309,8 +311,9 @@ void egl_swap_buffers(GuestCall &c) {
                     float dist = std::sqrt(dx * dx + dy * dy);
 
                     if (!s_is_dragging) {
-                        // Deadzone: small tremors (< 8px) do NOT dispatch POINTER_MOVE in menus/dialogs/AwardScreen,
-                        // keeping [appDriver + 0x116] intact so button taps complete cleanly!
+                        // Deadzone: a mouse trembles where a finger does not, so
+                        // small movements (< 8px) stay a tap rather than turning
+                        // into a drag the moment the button goes down.
                         if (dist >= 8.0f) {
                             s_is_dragging = true;
                             s_last_x = mouseX;
@@ -332,20 +335,10 @@ void egl_swap_buffers(GuestCall &c) {
                         float upX = s_is_dragging ? s_last_x : s_down_x;
                         float upY = s_is_dragging ? s_last_y : s_down_y;
 
-                        // Ensure appDriver + 0x116 is 0 so PopCap never cancels tap on mouse up
-                        c.write8(appDriver + 0x116, 0);
-
                         // Type 4 = POINTER_UP (pressure = 0.0f)
                         dispatch_pointer_event(c, handleEvents, appDriver, s_event_buf, 4, upX, upY, 0.0f);
                         s_touch_down = false;
                         s_is_dragging = false;
-
-                        if (awardScreen != 0) {
-                            // On AwardScreen, any click advances cleanly to next level!
-                            printf("[AwardScreen] Mouse up -> StartButtonPressed()\n");
-                            uint32_t sargs[1] = { awardScreen };
-                            c.call(gameMainBase + 0x00145715, sargs, 1); // StartButtonPressed()
-                        }
                     }
                 } else if (ev.button.button == SDL_BUTTON_RIGHT) {
                     dispatch_key_event(c, handleEvents, appDriver, s_event_buf, 1, 4);
