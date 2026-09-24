@@ -19,7 +19,12 @@
  */
 
 #include <cstdarg>
+#include <cstdint>
 #include <mutex>
+
+/* For trace_svc below: the image is an anonymous struct behind a typedef, so
+ * there is nothing to forward declare. */
+#include <pvz_tv/elf32/elf32_loader.h>
 
 namespace pvz_tv {
 namespace diag {
@@ -54,6 +59,12 @@ void vtrace(const char *fmt, std::va_list ap);
  * printf there reports to nobody. */
 void report(const char *fmt, ...);
 void vreport(const char *fmt, std::va_list ap);
+
+/* One line per SVC the guest makes: its name, where it was called from, its
+ * first two arguments, and -- for the calls that take one -- the path it was
+ * given. This is what finds the last call before a crash, and the one the game
+ * made that the host answered wrong. Does nothing below level 2. */
+void trace_svc(const pvz2_elf_image_t *img, unsigned swi, const std::uint32_t *regs, unsigned tid);
 
 /* "diagnostic" or "normal", for the banner the player prints at startup. */
 const char *build_name();

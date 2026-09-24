@@ -1,3 +1,4 @@
+#include <pvz_tv/diagnostics.h>
 #include <pvz_tv/dependencies/dependency.h>
 #include <pvz_tv/surface.h>
 #include <runner_core.h>
@@ -541,8 +542,9 @@ void egl_swap_buffers(GuestCall &c) {
         }
     }
 
-    if (++s_swap_count <= 3 || (s_swap_count % 300 == 0)) {
-        LOGI("eglSwapBuffers #%d", s_swap_count);
+    ++s_swap_count;
+    if (s_swap_count <= 3 || (s_swap_count % 300 == 0)) {
+        PVZTV_TRACE("eglSwapBuffers #%d", s_swap_count);
     }
 
     if (!s_event_buf) {

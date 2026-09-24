@@ -512,9 +512,12 @@ void c_fstat(GuestCall &c) {
 }
 
 void c_access(GuestCall &c) {
-    std::string hpath = vfs::translate(c.rt, c.cstr(c.arg(0), 1024));
+    std::string gpath = c.cstr(c.arg(0), 1024);
+    std::string hpath = vfs::translate(c.rt, gpath);
     std::error_code ec;
-    c.set_result(std::filesystem::exists(hpath, ec) ? 0u : (std::uint32_t)-1);
+    const bool found = std::filesystem::exists(hpath, ec);
+    c.trace("access(\"%s\") -> \"%s\" %s", gpath.c_str(), hpath.c_str(), found ? "OK" : "NOT FOUND");
+    c.set_result(found ? 0u : (std::uint32_t)-1);
 }
 
 void c_mkdir(GuestCall &c) {

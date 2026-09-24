@@ -463,6 +463,8 @@ void c_fopen(GuestCall &c) {
     if (mode.find('b') == std::string::npos) mode.push_back('b'); /* force binary on Windows */
 
     std::FILE *f = std::fopen(hpath.c_str(), mode.c_str());
+    c.trace("fopen(\"%s\", \"%s\") -> \"%s\" %s", gpath.c_str(), mode.c_str(), hpath.c_str(),
+            f ? "OK" : "NOT FOUND");
     std::uint32_t token = 0;
     if (f != nullptr) {
         std::lock_guard<std::mutex> lk(c.rt->files_lock);
