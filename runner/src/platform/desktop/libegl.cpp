@@ -262,18 +262,6 @@ void egl_swap_buffers(GuestCall &c) {
             if (winW <= 0) winW = 1280;
             if (winH <= 0) winH = 720;
 
-            uint32_t board = lawnApp ? c.read32(lawnApp + 0x8a0) : 0;
-            uint32_t awardScreen = lawnApp ? c.read32(lawnApp + 0x8cc) : 0;
-            uint32_t seedChooser = lawnApp ? c.read32(lawnApp + 0x8c4) : 0;
-            int gameScene = lawnApp ? (int)c.read32(lawnApp + 0x900) : 0;
-            int daveMsg = lawnApp ? (int)c.read32(lawnApp + 0x954) : -1;
-            bool boardPaused = (board != 0) ? (c.read8(board + 0x259) != 0) : false;
-            int tutorialState = (board != 0) ? (int)c.read32(board + 0x56a0) : 0;
-            bool inShovelTutorial = (tutorialState >= 15 && tutorialState <= 17);
-            bool is_gameplay = (board != 0) && !boardPaused && (awardScreen == 0) &&
-                               ((gameScene == 3 /* SCENE_PLAYING */) || inShovelTutorial) &&
-                               (daveMsg == -1);
-
             if (ev.type == SDL_MOUSEBUTTONDOWN) {
                 if (ev.button.button == SDL_BUTTON_LEFT) {
                     float mouseX = (float)ev.button.x * 1280.0f / (float)winW;
@@ -297,15 +285,7 @@ void egl_swap_buffers(GuestCall &c) {
                 float mouseX = (float)ev.motion.x * 1280.0f / (float)winW;
                 float mouseY = (float)ev.motion.y * 720.0f / (float)winH;
 
-                if (is_gameplay) {
-                    // In active gameplay only: continuously update cursor position so plant preview follows mouse!
-                    dispatch_pointer_event(c, handleEvents, appDriver, s_event_buf, 3, mouseX, mouseY, s_touch_down ? 1.0f : 0.0f);
-                    if (s_touch_down) {
-                        s_last_x = mouseX;
-                        s_last_y = mouseY;
-                        s_is_dragging = true;
-                    }
-                } else if (s_touch_down && (ev.motion.state & SDL_BUTTON_LMASK)) {
+                if (s_touch_down && (ev.motion.state & SDL_BUTTON_LMASK)) {
                     float dx = mouseX - s_down_x;
                     float dy = mouseY - s_down_y;
                     float dist = std::sqrt(dx * dx + dy * dy);
@@ -328,6 +308,13 @@ void egl_swap_buffers(GuestCall &c) {
                         // Type 3 = POINTER_MOVE
                         dispatch_pointer_event(c, handleEvents, appDriver, s_event_buf, 3, mouseX, mouseY, 1.0f);
                     }
+                } else {
+                    // A hovering mouse has no equivalent on a touchscreen, but
+                    // the game does track the cursor: that is what makes the
+                    // plant preview follow it. Sent as a move with no pressure,
+                    // which is the same shape of event, rather than asking
+                    // LawnApp what screen it happens to be showing.
+                    dispatch_pointer_event(c, handleEvents, appDriver, s_event_buf, 3, mouseX, mouseY, 0.0f);
                 }
             } else if (ev.type == SDL_MOUSEBUTTONUP) {
                 if (ev.button.button == SDL_BUTTON_LEFT) {
