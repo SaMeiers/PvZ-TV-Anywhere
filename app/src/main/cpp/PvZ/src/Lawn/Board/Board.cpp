@@ -3074,6 +3074,9 @@ void Board::processServerEvent(const BaseEvent *event) {
             uint16_t clientZombieID = 0;
             if (homura::FindInMap(serverZombieIDMap, eventThrow->data, clientZombieID)) {
                 Zombie *aZombie = mZombies.DataArrayGet(clientZombieID);
+                if (aZombie->mZombiePhase == ZombiePhase::PHASE_RISING_FROM_GRAVE) {
+                    aZombie->FinishZombieRiseFromGrave();
+                }
                 aZombie->StopEating();
                 aZombie->mZombiePhase = ZombiePhase::PHASE_CROSSING_GUARD_THROWING;
                 aZombie->PlayZombieReanim("anim_throw", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 10, 16.0f);
