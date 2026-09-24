@@ -39,6 +39,7 @@
 #include <pvz_tv/surface.h>
 #include <pvz_tv/gfx/gl_requirements.h>
 #include <pvz_tv/config.h>
+#include <pvz_tv/dependencies/vfs.h>
 #include <pvz_tv/diagnostics.h>
 
 // Global window handle for EGL layer
@@ -451,38 +452,8 @@ public:
             return;
         }
 
-        if (trace_svc && swi < img->trampoline_count) {
-            const char *name = img->trampoline_names[swi];
-            if (strcmp(name, "memcmp") != 0 && strcmp(name, "memcpy") != 0 &&
-                strcmp(name, "memmove") != 0 && strcmp(name, "memset") != 0 &&
-                strcmp(name, "strlen") != 0 && strcmp(name, "strcmp") != 0 &&
-                strcmp(name, "malloc") != 0 && strcmp(name, "free") != 0 &&
-                strcmp(name, "calloc") != 0 && strcmp(name, "realloc") != 0 &&
-                strcmp(name, "pthread_mutex_lock") != 0 && strcmp(name, "pthread_mutex_unlock") != 0 &&
-                strcmp(name, "clock_gettime") != 0 && strcmp(name, "gettimeofday") != 0 &&
-                strcmp(name, "select") != 0 && strcmp(name, "stat") != 0 &&
-                strcmp(name, "readdir") != 0 && strcmp(name, "fnmatch") != 0 &&
-                strcmp(name, "sprintf") != 0 && strcmp(name, "strdup") != 0 &&
-                strcmp(name, "pow") != 0 && strcmp(name, "sin") != 0 &&
-                strcmp(name, "cos") != 0 && strcmp(name, "atan2") != 0) {
-                // For the calls that take a path, show it: a crash inside one of
-                // these is nearly always about the path itself.
-                const bool takes_path =
-                    strcmp(name, "access") == 0 || strcmp(name, "fopen") == 0 ||
-                    strcmp(name, "open") == 0 || strcmp(name, "mkdir") == 0 ||
-                    strcmp(name, "opendir") == 0 || strcmp(name, "unlink") == 0;
-                char path[256] = {0};
-                if (takes_path) {
-                    uint32_t p = jit->Regs()[0];
-                    for (size_t i = 0; i + 1 < sizeof(path) && in_bounds(p + (uint32_t)i, 1); ++i) {
-                        path[i] = (char)img->mem[p + i];
-                        if (path[i] == '\0') break;
-                    }
-                }
-                printf("[SVC tid=%u] #%u %s (lr=0x%08X, r0=0x%08X, r1=0x%08X)%s%s\n",
-                       pvz_tv::guest_tls::self_id, swi, name, jit->Regs()[14], jit->Regs()[0], jit->Regs()[1],
-                       takes_path ? " path=" : "", takes_path ? path : "");
-            }
+        if (trace_svc) {
+            pvz_tv::diag::trace_svc(img, swi, jit->Regs().data(), pvz_tv::guest_tls::self_id);
         }
 
         if (handlers && swi < handlers->size() && (*handlers)[swi]) {
@@ -777,6 +748,7 @@ int main(int argc, char *argv[]) {
                 exeDir.string().c_str(), chdirEc.message().c_str());
     }
 
+    pvz_tv::vfs::ensure_writable_dirs();
     pvz2_config_load(nullptr, "./");
 #if defined(_WIN32)
     timeBeginPeriod(1);
@@ -1023,7 +995,6 @@ int main(int argc, char *argv[]) {
     uint32_t mainAddr = image.modules[0].base + 0x00131e15;
     printf("[*] Entering libGameMain.so main() at 0x%08X...\n", mainAddr);
 
-    env.trace_svc = false;
     env.should_halt = false;
     jit.Regs()[0] = 0; // argc
     jit.Regs()[1] = 0; // argv

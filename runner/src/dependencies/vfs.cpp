@@ -190,11 +190,22 @@ bool exists(GuestRuntime *rt, const std::string &guest_path, std::string &out_ho
         out_host = s_vfs_index[g_key];
         return true;
     }
-    // Only hit disk for writable/special userdata paths
-    if (key.rfind("userdata/", 0) == 0 || key.rfind("pseudo_fs/", 0) == 0) {
-        return std::filesystem::exists(out_host);
+
+    /* The index is a snapshot of the assets taken when the guest first asked
+     * for a file, so nothing the game creates while it runs is in it: its
+     * profile under data/, a save, a file it downloads. Answering "no" for
+     * those made the game give up on its own first launch -- it created the
+     * profile, could not see it, and quit -- so the filesystem gets the last
+     * word. */
+    std::error_code ec;
+    return std::filesystem::exists(out_host, ec);
+}
+
+void ensure_writable_dirs() {
+    std::error_code ec;
+    for (const char *dir : {"data", "data/userdata", "userdata"}) {
+        std::filesystem::create_directories(dir, ec);
     }
-    return false;
 }
 
 int translate_open_flags(std::uint32_t g) {

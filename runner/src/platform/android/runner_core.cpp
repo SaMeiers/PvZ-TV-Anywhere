@@ -1,4 +1,5 @@
 #include <pvz_tv/diagnostics.h>
+#include <pvz_tv/dependencies/vfs.h>
 #include "runner_core.h"
 #include <pvz_tv/surface.h>
 #include <pvz_tv/config.h>
@@ -333,6 +334,7 @@ public:
         }
         current_state.store("in_svc", std::memory_order_relaxed);
 #endif
+        if (jit) diag::trace_svc(img, swi, jit->Regs().data(), guest_tls::self_id);
 
         if (swi == 0) {
             uint32_t syscall_num = jit ? jit->Regs()[7] : 0;
@@ -708,6 +710,7 @@ bool RunnerCore::init(const char *game_so_path, const char *data_dir) {
     if (!data_dir_.empty()) {
         chdir(data_dir_.c_str());
     }
+    vfs::ensure_writable_dirs();
 
     LOGI("Initializing RunnerCore with %s (data: %s)", game_so_path, data_dir_.c_str());
 

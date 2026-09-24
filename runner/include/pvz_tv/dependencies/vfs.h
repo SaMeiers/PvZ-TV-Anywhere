@@ -44,6 +44,13 @@ bool exists(GuestRuntime *rt, const std::string &guest_path, std::string &out_ho
  * O_CREAT/O_EXCL/O_TRUNC/O_APPEND; binary mode is always forced. */
 int translate_open_flags(std::uint32_t guest_flags);
 
+/* Creates the directories the game writes into (data/, data/userdata/,
+ * userdata/) before it starts. It looks for data/ the moment it comes up, to
+ * mount data/main.pak, and gives up on its resources entirely if that
+ * directory is not there -- which is what made a freshly installed app show a
+ * black screen until it was launched a second time. */
+void ensure_writable_dirs();
+
 }  // namespace vfs
 }  // namespace pvz_tv
 
