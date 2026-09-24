@@ -60,28 +60,40 @@ static std::string to_lower_str(const std::string &s) {
     return out;
 }
 
+/* The walk runs from inside a guest file call, so nothing here may throw: an
+ * entry that cannot be read -- or, on Windows, whose name the narrow encoding
+ * cannot represent -- is skipped and the rest of the tree is still indexed. */
 static void index_dir(const std::string &dir_path, const std::string &prefix) {
     std::error_code ec;
     if (!std::filesystem::exists(dir_path, ec)) return;
-    for (auto &it : std::filesystem::recursive_directory_iterator(dir_path, ec)) {
-        if (it.is_regular_file(ec)) {
-            std::string full = it.path().generic_string();
-            std::string rel = std::filesystem::relative(it.path(), dir_path, ec).generic_string();
-            collapse_slashes(full);
-            collapse_slashes(rel);
+    try {
+        for (auto &it : std::filesystem::recursive_directory_iterator(
+                 dir_path, std::filesystem::directory_options::skip_permission_denied, ec)) {
+            try {
+                if (!it.is_regular_file(ec)) continue;
 
-            std::string rel_lower = to_lower_str(rel);
-            s_vfs_index[rel_lower] = full;
-            s_vfs_index["/" + rel_lower] = full;
+                std::string full = it.path().generic_string();
+                std::string rel = std::filesystem::relative(it.path(), dir_path, ec).generic_string();
+                collapse_slashes(full);
+                collapse_slashes(rel);
 
-            if (!prefix.empty()) {
-                std::string with_p = prefix + "/" + rel;
-                collapse_slashes(with_p);
-                std::string with_p_lower = to_lower_str(with_p);
-                s_vfs_index[with_p_lower] = full;
-                s_vfs_index["/" + with_p_lower] = full;
+                std::string rel_lower = to_lower_str(rel);
+                s_vfs_index[rel_lower] = full;
+                s_vfs_index["/" + rel_lower] = full;
+
+                if (!prefix.empty()) {
+                    std::string with_p = prefix + "/" + rel;
+                    collapse_slashes(with_p);
+                    std::string with_p_lower = to_lower_str(with_p);
+                    s_vfs_index[with_p_lower] = full;
+                    s_vfs_index["/" + with_p_lower] = full;
+                }
+            } catch (const std::exception &) {
+                continue;
             }
         }
+    } catch (const std::exception &) {
+        /* Whatever was collected before the failure stays usable. */
     }
 }
 
@@ -95,6 +107,11 @@ static void index_dir(const std::string &dir_path, const std::string &prefix) {
 static void ensure_vfs_indexed() {
     std::call_once(s_vfs_index_once, []() {
         index_dir("assets", "assets");
+        /* The APK keeps the game data one level down, in assets/files; the
+         * Android extractor flattens that away, while a desktop install can
+         * hold the asset directory exactly as it is packed. Indexing it as a
+         * root as well makes both layouts resolve the same guest paths. */
+        index_dir("assets/files", "assets");
         index_dir("/data/user/0/com.trans.pvztv/files/assets", "assets");
         index_dir("/storage/emulated/0/Android/data/com.trans.pvztv/files/assets", "assets");
         index_dir("userdata", "userdata");

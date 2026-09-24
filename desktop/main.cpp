@@ -1,3 +1,4 @@
+#include <clocale>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -7,6 +8,7 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <exception>
 #include <filesystem>
 
 #include <SDL.h>
@@ -486,8 +488,23 @@ public:
                 strcmp(name, "sprintf") != 0 && strcmp(name, "strdup") != 0 &&
                 strcmp(name, "pow") != 0 && strcmp(name, "sin") != 0 &&
                 strcmp(name, "cos") != 0 && strcmp(name, "atan2") != 0) {
-                printf("[SVC tid=%u] #%u %s (lr=0x%08X, r0=0x%08X, r1=0x%08X)\n",
-                       pvz_tv::guest_tls::self_id, swi, name, jit->Regs()[14], jit->Regs()[0], jit->Regs()[1]);
+                // For the calls that take a path, show it: a crash inside one of
+                // these is nearly always about the path itself.
+                const bool takes_path =
+                    strcmp(name, "access") == 0 || strcmp(name, "fopen") == 0 ||
+                    strcmp(name, "open") == 0 || strcmp(name, "mkdir") == 0 ||
+                    strcmp(name, "opendir") == 0 || strcmp(name, "unlink") == 0;
+                char path[256] = {0};
+                if (takes_path) {
+                    uint32_t p = jit->Regs()[0];
+                    for (size_t i = 0; i + 1 < sizeof(path) && in_bounds(p + (uint32_t)i, 1); ++i) {
+                        path[i] = (char)img->mem[p + i];
+                        if (path[i] == '\0') break;
+                    }
+                }
+                printf("[SVC tid=%u] #%u %s (lr=0x%08X, r0=0x%08X, r1=0x%08X)%s%s\n",
+                       pvz_tv::guest_tls::self_id, swi, name, jit->Regs()[14], jit->Regs()[0], jit->Regs()[1],
+                       takes_path ? " path=" : "", takes_path ? path : "");
             }
         }
 
@@ -734,7 +751,33 @@ static std::filesystem::path executable_directory(const char *argv0) {
     return ec2 ? std::filesystem::current_path() : from_argv.parent_path();
 }
 
+// An exception that escapes to std::terminate otherwise aborts the process
+// with nothing printed, which says nothing about what went wrong.
+static void report_unhandled_exception() {
+    if (auto e = std::current_exception()) {
+        try {
+            std::rethrow_exception(e);
+        } catch (const std::exception &ex) {
+            fprintf(stderr, "[-] fatal: unhandled exception: %s\n", ex.what());
+        } catch (...) {
+            fprintf(stderr, "[-] fatal: unhandled exception of unknown type\n");
+        }
+    } else {
+        fprintf(stderr, "[-] fatal: terminate called\n");
+    }
+    fflush(stderr);
+    std::abort();
+}
+
 int main(int argc, char *argv[]) {
+    std::set_terminate(report_unhandled_exception);
+#if defined(_WIN32)
+    // Guest paths are UTF-8 (the asset packs ship with Chinese file names), so
+    // the narrow CRT and std::filesystem have to speak UTF-8 as well; otherwise
+    // converting such a path throws "no mapping for the Unicode character".
+    // Only LC_CTYPE is switched, to keep the C conventions for number parsing.
+    std::setlocale(LC_CTYPE, ".UTF8");
+#endif
     setvbuf(stdout, NULL, _IONBF, 0);
     setvbuf(stderr, NULL, _IONBF, 0);
     printf("=========================================\n");
@@ -949,6 +992,10 @@ int main(int argc, char *argv[]) {
     // Execute static constructors
     printf("[*] Running C++ static constructors (.init_array)...\n");
     uint32_t executedCtors = 0;
+    // Set PVZTV_TRACE_SVC=1 to log every call the guest makes into the host,
+    // which is how you find the last one before a crash.
+    env.trace_svc = std::getenv("PVZTV_TRACE_SVC") != nullptr;
+
     for (uint32_t k = 0; k < image.module_count; ++k) {
         const pvz2_elf_module_t &m = image.modules[image.init_order[k]];
         printf("--- Executing %u constructors for [%s] ---\n", m.init_array_count, m.name);
@@ -1074,6 +1121,24 @@ int main(int argc, char *argv[]) {
 
     printf("[+] main() completed with return code: %d\n", (int)jit.Regs()[0]);
 
+    // A guest thread the game never joined is still joinable here, and
+    // destroying the runtime while one of those is around aborts the process.
+    // Threads that already returned are joined; the rest are parked in a
+    // blocking call (the network listeners always are), so they are cut loose.
+    bool guest_threads_parked = false;
+    {
+        std::lock_guard<std::mutex> lock(rt.threads_lock);
+        for (auto it = rt.threads.begin(); it != rt.threads.end(); it = rt.threads.erase(it)) {
+            if (!it->second.joinable()) continue;
+            if (rt.thread_retvals.count(it->first) != 0) {
+                it->second.join();
+            } else {
+                guest_threads_parked = true;
+                it->second.detach();
+            }
+        }
+    }
+
     if (g_gl_context) SDL_GL_DeleteContext(g_gl_context);
     if (g_sdl_window) SDL_DestroyWindow(g_sdl_window);
     SDL_Quit();
@@ -1082,6 +1147,13 @@ int main(int argc, char *argv[]) {
     timeEndPeriod(1);
     WSACleanup();
 #endif
+
+    if (guest_threads_parked) {
+        // Guest code is still sitting in a blocking call, so end the process
+        // here rather than unmapping the image from under it.
+        std::fflush(nullptr);
+        std::_Exit(0);
+    }
 
     pvz2_elf_free(&image);
     return 0;
