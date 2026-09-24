@@ -120,11 +120,11 @@ jobs:
           title: Nightly Build
           files: artifact/*.apk
 
+      # Upstream publishes stable builds to a separate PvZ-TV-builds repository;
+      # here they live in this one, so no extra token is needed.
       - name: Publish release
         uses: softprops/action-gh-release@v3
         with:
-          repository: ${{ github.repository_owner }}/PvZ-TV-builds
-          token: ${{ secrets.BUILDS_TOKEN }}
           prerelease: false
           make_latest: true
           tag_name: ${{ steps.commit_info.outputs.commits_date }}-${{ steps.commit_info.outputs.commits_count }}
