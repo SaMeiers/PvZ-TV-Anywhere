@@ -27,6 +27,7 @@
  * address and answered nonsense, with nothing reported anywhere.
  */
 
+#include <pvz_tv/diagnostics.h>
 #include <pvz_tv/dependencies/dependency.h>
 
 #include <cstdio>
@@ -223,7 +224,7 @@ void initialize_data_imports(pvz2_elf_image_t *img, GuestRuntime *rt) {
             // Unhandled data import
         }
 
-        std::printf("pvz2: [data-import] %-34s -> 0x%08x\n", name, addr);
+        PVZTV_TRACE("[data-import] %-34s -> 0x%08x", name, addr);
     }
 }
 

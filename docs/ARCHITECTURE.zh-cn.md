@@ -58,9 +58,35 @@ runner 在 `setup_transmension_bridge()` 中自行构造它们, 并代替 Java U
 
 ## 调试
 
-- guest 与 runner 的日志输出到 logcat, 标签为 `RunnerGuest`, `RunnerCore`,
-  `RunnerEGL`, `RunnerJNI` 和 `RunnerAudio`; PC 上则输出到 stdout.
+一切都有两种构建. **普通构建**只报告出错的东西 -- guest 断言, 被拒绝的分配,
+卡住的线程, 以及游戏自己的日志 -- 其余一概不说. **诊断构建**额外输出只有在
+出问题之后才值得看的实时记录: guest 打开的每个文件, 创建的每个 socket,
+查找的每个符号, 执行的每个构造函数, 以及一个报告各 guest 线程状态的 watchdog.
+
+这些记录每次 guest libc 调用都要写一行, 因此只有定义了 `PVZTV_DIAGNOSTICS`
+时才会编译进去 -- 普通构建里这些调用及其参数根本不在二进制中. 新增记录请用
+`PVZTV_TRACE()`, 在 dependency 处理函数中则用 `GuestCall::trace()`;
+`GuestCall::log()` 与 `diag::report()` 用于出错的情况, 始终会输出.
+runner 代码中不要用 `printf`: Android 应用进程没有 stdout, 输出无人可见.
+
+| | Android | 桌面 |
+| --- | --- | --- |
+| 普通 | `assembleV115Release` | `cmake -S desktop -B build/desktop` |
+| 诊断 | `assembleV115RelWithDebInfo` | ... `-DPVZTV_DIAGNOSTICS=ON` |
+
+诊断版应用的 id 以 `.debug` 结尾, 可与普通版共存; 诊断版播放器名为
+`pvztv_player-diag`, 因此两者可以放在同一个游戏目录里. 输出量在启动时确定,
+也可以调高:
+
+```sh
+PVZTV_TRACE=2 ./pvztv_player-diag          # 桌面
+adb shell setprop debug.pvztv.trace 2      # Android, 启动应用前执行
+```
+
+- `0` 关闭, `1` 宿主调用 (诊断构建的默认值), `2` 另外记录 guest 发出的每一次
+  SVC 及其参数 -- 崩溃前的最后一次调用就是这样找到的.
+- guest 与 runner 的日志输出到 logcat, 标签为 `RunnerGuest`, `RunnerTrace`,
+  `RunnerCore`, `RunnerEGL`, `RunnerJNI` 和 `RunnerAudio`; PC 上则输出到 stdout.
 - guest 崩溃时会打印寄存器, 以及 guest 栈上可能的返回地址, 并解析为 `模块+偏移`.
-- Debug 构建还会运行一个 watchdog, 每两秒报告各 guest 线程的状态.
 - 要把偏移还原成函数, 反汇编 guest 库:
   `llvm-objdump -d --triple=thumbv7 -C libGameMain.so`.

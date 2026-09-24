@@ -64,13 +64,17 @@ android {
             applicationIdSuffix = ".debug"
         }
 
+        // The diagnostic build: same game, but it traces every call the guest
+        // makes into the host and keeps the hang watchdog running. Installs
+        // next to the normal one thanks to the id suffix, so a crash can be
+        // reproduced without uninstalling anything.
         relWithDebInfo {
             applicationIdSuffix = ".debug"
             signingConfig = signingConfigs.debug
             debuggable = true
             externalNativeBuild {
                 cmake {
-                    arguments "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
+                    arguments "-DCMAKE_BUILD_TYPE=RelWithDebInfo", "-DPVZTV_DIAGNOSTICS=ON"
                 }
             }
         }

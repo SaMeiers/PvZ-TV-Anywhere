@@ -29,4 +29,8 @@ add_subdirectory("${PVZTV_ROOT}/runner" "${CMAKE_BINARY_DIR}/runner")
 
 add_executable(pvztv_player main.cpp)
 target_link_libraries(pvztv_player PRIVATE pvztv_runner)
+if(PVZTV_DIAGNOSTICS)
+    # So both builds can live in the same game folder.
+    set_target_properties(pvztv_player PROPERTIES OUTPUT_NAME pvztv_player-diag)
+endif()
 target_include_directories(pvztv_player PRIVATE "${PVZTV_ZLIB_INCLUDE_DIR}")

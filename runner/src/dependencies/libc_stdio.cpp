@@ -425,7 +425,7 @@ void c_fopen(GuestCall &c) {
         std::lock_guard<std::mutex> lk(s_stdio_maps_lock);
         s_stdio_proc_maps = generate_stdio_maps(c.img);
         s_stdio_maps_pos = 0;
-        c.log("fopen(\"%s\") -> OK (pseudo /proc/self/maps token=0x%08x)", gpath.c_str(), kProcMapsFileToken);
+        c.trace("fopen(\"%s\") -> OK (pseudo /proc/self/maps token=0x%08x)", gpath.c_str(), kProcMapsFileToken);
         c.set_result(kProcMapsFileToken);
         return;
     }
@@ -433,13 +433,13 @@ void c_fopen(GuestCall &c) {
     if (gpath == "/proc/self/cmdline" || gpath.find("proc/self/cmdline") != std::string::npos) {
         std::lock_guard<std::mutex> lk(s_stdio_cmdline_lock);
         s_stdio_cmdline_pos = 0;
-        c.log("fopen(\"%s\") -> OK (pseudo /proc/self/cmdline token=0x%08x)", gpath.c_str(), kProcCmdlineToken);
+        c.trace("fopen(\"%s\") -> OK (pseudo /proc/self/cmdline token=0x%08x)", gpath.c_str(), kProcCmdlineToken);
         c.set_result(kProcCmdlineToken);
         return;
     }
 
     if (gpath == "/dev/urandom" || gpath == "/dev/random") {
-        c.log("fopen(\"%s\") -> OK (pseudo-urandom token=0x%08x)", gpath.c_str(), kUrandomToken);
+        c.trace("fopen(\"%s\") -> OK (pseudo-urandom token=0x%08x)", gpath.c_str(), kUrandomToken);
         c.set_result(kUrandomToken);
         return;
     }
@@ -630,7 +630,7 @@ void c_fputs(GuestCall &c) {
 }
 
 void c_puts(GuestCall &c) {
-    c.log("[guest stdout] %s", c.cstr(c.arg(0)).c_str());
+    c.trace("[guest stdout] %s", c.cstr(c.arg(0)).c_str());
     c.set_result(1);
 }
 
@@ -642,12 +642,12 @@ void c_putchar(GuestCall &c) {
     static std::string line;
     const int ch = (int)(c.arg(0) & 0xFF);
     if (ch == '\n') {
-        c.log("[guest stdout] %s", line.c_str());
+        c.trace("[guest stdout] %s", line.c_str());
         line.clear();
     } else {
         line.push_back((char)ch);
         if (line.size() >= 512) { /* never let a writer with no newline grow without bound */
-            c.log("[guest stdout] %s", line.c_str());
+            c.trace("[guest stdout] %s", line.c_str());
             line.clear();
         }
     }
@@ -766,7 +766,7 @@ void c_vswprintf(GuestCall &c) {
 void c_printf(GuestCall &c) {
     VaSource args = VaSource::from_registers(c, 1);
     std::string s = libc::format(c, c.arg(0), args);
-    c.log("[guest stdout] %s", s.c_str());
+    c.trace("[guest stdout] %s", s.c_str());
     c.set_result((std::uint32_t)s.size());
 }
 

@@ -18,6 +18,11 @@ jobs:
       matrix:
         version: [ w111, v115 ]
         build_type: [ release ]
+        # The diagnostic build: traces every guest call and keeps the hang
+        # watchdog running. Installs next to the normal app (id suffix .debug).
+        include:
+          - version: v115
+            build_type: relWithDebInfo
 
     steps:
       - name: Checkout
@@ -50,7 +55,6 @@ jobs:
           add-job-summary: on-failure
 
       - name: Decode keystore
-        if: matrix.build_type == 'release'
         env:
           KEYSTORE_ENCODED: ${{ secrets.KEYSTORE }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -63,6 +67,10 @@ jobs:
             echo "storePassword=$KEYSTORE_PASSWORD" >> keystore.properties
             echo "keyAlias=$KEY_ALIAS" >> keystore.properties
             echo "keyPassword=$KEY_PASSWORD" >> keystore.properties
+          elif [ ! -f "$HOME/debug.keystore" ]; then
+            # No secret (a fork, say): the debug signing config still needs a
+            # key, and the diagnostic build is signed with it.
+            keytool -genkeypair -dname "CN=PvZ TV CI" -alias androiddebugkey -keypass android -keystore "$HOME/debug.keystore" -storepass android -keyalg RSA -validity 10000
           fi
 
       - name: Build with Gradle

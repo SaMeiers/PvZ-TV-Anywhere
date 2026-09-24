@@ -11,6 +11,7 @@
  * dirent.h -- doc 9.21).
  */
 
+#include <pvz_tv/diagnostics.h>
 #include <pvz_tv/dependencies/dependency.h>
 #include <pvz_tv/dependencies/vfs.h>
 #include <pvz_tv/dependencies/libc_internal.h>
@@ -150,13 +151,13 @@ void c_open(GuestCall &c) {
         std::lock_guard<std::mutex> lk(s_proc_maps_lock);
         s_proc_maps_data = generate_proc_maps(c.img);
         s_proc_maps_pos = 0;
-        c.log("open(\"%s\") -> OK (synthetic /proc/self/maps, token=0x%08x, size=%zu)",
+        c.trace("open(\"%s\") -> OK (synthetic /proc/self/maps, token=0x%08x, size=%zu)",
               gpath.c_str(), kProcMapsFdToken, s_proc_maps_data.size());
         c.set_result(kProcMapsFdToken);
         return;
     }
     if (is_random_device(gpath)) {
-        c.log("open(\"%s\") -> OK (synthetic random device, token=0x%08x)", gpath.c_str(),
+        c.trace("open(\"%s\") -> OK (synthetic random device, token=0x%08x)", gpath.c_str(),
               kRandomFdToken);
         c.set_result(kRandomFdToken);
         return;
@@ -963,7 +964,7 @@ void c_opendir(GuestCall &c) {
         c.set_result(0);
         return;
     }
-    printf("[*] opendir(\"%s\") -> \"%s\"\n", guest_p.c_str(), hpath.c_str());
+    PVZTV_TRACE("[*] opendir(\"%s\") -> \"%s\"", guest_p.c_str(), hpath.c_str());
     /* The DIR* is a guest allocation so it is a unique, non-null token the
      * guest can compare against NULL; its contents are ours. */
     std::uint32_t handle = c.rt->heap.alloc(8);

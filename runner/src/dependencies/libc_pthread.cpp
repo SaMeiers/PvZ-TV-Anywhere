@@ -413,7 +413,7 @@ void c_create(GuestCall &c) {
         if (c.in_bounds(arg, 8)) {
             uint32_t inner_fn = c.read32(arg);
             if ((inner_fn & ~1u) == (c.img->modules[0].base + 0x004f44a0)) {
-                c.log("[pthread] Skipping Transmension telemetry LogManager::threadSendProc thread");
+                c.trace("[pthread] Skipping Transmension telemetry LogManager::threadSendProc thread");
                 c.rt->heap.free_ptr(arg, c.lr());
                 if (thread_out != 0) c.write32(thread_out, 9999);
                 c.set_result(0);

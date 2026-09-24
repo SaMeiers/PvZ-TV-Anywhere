@@ -1,5 +1,7 @@
 #include <pvz_tv/dependencies/dependency.h>
 
+#include <pvz_tv/diagnostics.h>
+
 #include <pvz_tv/config.h>
 
 #ifdef __ANDROID__
@@ -126,19 +128,18 @@ int GuestCall::fd(std::uint32_t token) const {
 }
 
 void GuestCall::log(const char *fmt, ...) const {
-    char buf[1024];
     va_list ap;
     va_start(ap, fmt);
-    std::vsnprintf(buf, sizeof(buf), fmt, ap);
+    diag::vreport(fmt, ap);
     va_end(ap);
-#ifdef __ANDROID__
-    // stdout goes nowhere in an Android app process; logcat is the console.
-    __android_log_write(ANDROID_LOG_INFO, "RunnerGuest", buf);
-#else
-    std::lock_guard<std::mutex> lg(rt->log_lock);
-    std::printf("pvz2: %s\n", buf);
-    std::fflush(stdout);
-#endif
+}
+
+void GuestCall::trace(const char *fmt, ...) const {
+    if (!diag::tracing()) return;
+    va_list ap;
+    va_start(ap, fmt);
+    diag::vtrace(fmt, ap);
+    va_end(ap);
 }
 
 std::uint32_t GuestCall::errno_addr() const {

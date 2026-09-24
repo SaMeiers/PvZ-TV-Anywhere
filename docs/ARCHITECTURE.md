@@ -67,11 +67,41 @@ corrupts it. `HookInit.cpp` and `Symbols.cpp` list what the mod hooks, and
 
 ## Debugging
 
-- Guest and runner logs go to logcat under the tags `RunnerGuest`, `RunnerCore`,
-  `RunnerEGL`, `RunnerJNI` and `RunnerAudio`; on PC they go to stdout.
+Everything ships in two builds. The **normal** one reports what goes wrong --
+guest asserts, refused allocations, stuck threads, the game's own log -- and
+says nothing else. The **diagnostic** one adds the running commentary that is
+only worth having once something has already gone wrong: every file the guest
+opens, every socket it creates, every symbol it looks up, every constructor it
+runs, and a watchdog that says what each guest thread is doing.
+
+That commentary costs a line of output per guest libc call, so it is compiled in
+only when `PVZTV_DIAGNOSTICS` is defined -- in a normal build the calls and
+their arguments are not in the binary at all. Write one with `PVZTV_TRACE()`, or
+`GuestCall::trace()` inside a dependency handler; `GuestCall::log()` and
+`diag::report()` are for things going wrong and always print. Never use `printf`
+in runner code: an Android app process has no stdout, so it reports to nobody.
+
+| | Android | Desktop |
+| --- | --- | --- |
+| normal | `assembleV115Release` | `cmake -S desktop -B build/desktop` |
+| diagnostic | `assembleV115RelWithDebInfo` | ... `-DPVZTV_DIAGNOSTICS=ON` |
+
+The diagnostic app installs beside the normal one (its id ends in `.debug`) and
+the diagnostic player is named `pvztv_player-diag`, so both can sit in the same
+game folder. How much it says is set at startup and can be turned up:
+
+```sh
+PVZTV_TRACE=2 ./pvztv_player-diag          # desktop
+adb shell setprop debug.pvztv.trace 2      # android, before launching
+```
+
+- `0` off, `1` host calls (the default in a diagnostic build), `2` also every
+  SVC the guest makes, with its arguments -- which is how you find the last call
+  before a crash.
+- Guest and runner logs go to logcat under the tags `RunnerGuest`, `RunnerTrace`,
+  `RunnerCore`, `RunnerEGL`, `RunnerJNI` and `RunnerAudio`; on PC they go to
+  stdout.
 - A guest crash dumps registers plus the plausible return addresses on the guest
   stack, each resolved to `module+offset`.
-- Debug builds also run a watchdog that reports, every two seconds, what each
-  guest thread is doing.
 - To map an offset back to a function, disassemble the guest library:
   `llvm-objdump -d --triple=thumbv7 -C libGameMain.so`.

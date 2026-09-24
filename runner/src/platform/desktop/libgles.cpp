@@ -117,11 +117,11 @@ void dump_draw_state(GuestCall &c) {
     }
 
     const GLenum fb_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    c.log("[gl] draw-state: program=%d linked=%d validated=%d fbo=%d fb_status=0x%04x "
+    c.trace("[gl] draw-state: program=%d linked=%d validated=%d fbo=%d fb_status=0x%04x "
           "array_buffer=%d active_texture=0x%04x texture_2d=%d vao=%d",
           program, linked, validated, fbo, (unsigned)fb_status, array_buf,
           (unsigned)active_tex, tex2d, vao);
-    if (log[0] != '\0') c.log("[gl] program info log: %s", log);
+    if (log[0] != '\0') c.trace("[gl] program info log: %s", log);
 
     /* Which attribute arrays are live, and whether each is client-side (buffer
      * 0) -- client arrays are legal in a compatibility profile but not in core,
@@ -135,7 +135,7 @@ void dump_draw_state(GuestCall &c) {
         glGetVertexAttribiv(i, GL_VERTEX_ATTRIB_ARRAY_SIZE, &size);
         void *ptr = nullptr;
         glGetVertexAttribPointerv(i, GL_VERTEX_ATTRIB_ARRAY_POINTER, &ptr);
-        c.log("[gl]   attrib %u: enabled buffer=%d size=%d ptr=%p", i, buf, size, ptr);
+        c.trace("[gl]   attrib %u: enabled buffer=%d size=%d ptr=%p", i, buf, size, ptr);
     }
 }
 
@@ -167,13 +167,13 @@ void dump_program_source(GuestCall &c, GLuint program) {
     GLuint shaders[8] = {0};
     GLsizei count = 0;
     glGetAttachedShaders(program, 8, &count, shaders);
-    c.log("[gl] ===== program %u has %d attached shader(s) =====", program, (int)count);
+    c.trace("[gl] ===== program %u has %d attached shader(s) =====", program, (int)count);
     for (GLsizei i = 0; i < count; ++i) {
         GLint type = 0, compiled = 0, len = 0;
         glGetShaderiv(shaders[i], GL_SHADER_TYPE, &type);
         glGetShaderiv(shaders[i], GL_COMPILE_STATUS, &compiled);
         glGetShaderiv(shaders[i], GL_SHADER_SOURCE_LENGTH, &len);
-        c.log("[gl] --- shader %u type=%s compiled=%d ---", shaders[i],
+        c.trace("[gl] --- shader %u type=%s compiled=%d ---", shaders[i],
               type == GL_VERTEX_SHADER ? "VERTEX" : "FRAGMENT", compiled);
         if (len <= 0 || len > 16384) continue;
         std::string src((size_t)len, '\0');
@@ -186,7 +186,7 @@ void dump_program_source(GuestCall &c, GLuint program) {
             if (nl == std::string::npos) nl = src.size();
             std::string line = src.substr(start, nl - start);
             if (!line.empty() && line.back() == '\r') line.pop_back();
-            if (!line.empty()) c.log("[gl] | %s", line.c_str());
+            if (!line.empty()) c.trace("[gl] | %s", line.c_str());
             start = nl + 1;
         }
     }
@@ -201,7 +201,7 @@ void probe_composite_texture(GuestCall &c, std::uint32_t draw_index) {
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &tex);
     glGetIntegerv(GL_ACTIVE_TEXTURE, &unit);
     if (tex == 0) {
-        c.log("[gl] composite draw has NO texture bound on unit 0x%04x -- it can only sample black",
+        c.trace("[gl] composite draw has NO texture bound on unit 0x%04x -- it can only sample black",
               (unsigned)unit);
         return;
     }
@@ -221,7 +221,7 @@ void probe_composite_texture(GuestCall &c, std::uint32_t draw_index) {
 
     /* 0x2600 NEAREST, 0x2601 LINEAR; anything else is a mipmapping filter. */
     const bool needs_mips = (min_f != 0x2600 && min_f != 0x2601);
-    c.log("[gl] draw #%u samples texture %d on unit 0x%04x: level0=%dx%d fmt=0x%04x "
+    c.trace("[gl] draw #%u samples texture %d on unit 0x%04x: level0=%dx%d fmt=0x%04x "
           "min=0x%04x mag=0x%04x wrap=0x%04x/0x%04x base=%d max=%d%s",
           draw_index, tex, (unsigned)unit, w0, h0, (unsigned)fmt, (unsigned)min_f, (unsigned)mag_f,
           (unsigned)wrap_s, (unsigned)wrap_t, base, maxlvl,
@@ -239,9 +239,9 @@ void probe_composite_texture(GuestCall &c, std::uint32_t draw_index) {
 void probe_composite_geometry(GuestCall &c, GLint first, GLsizei count, std::uint32_t draw_index) {
     GLint program = 0;
     glGetIntegerv(GL_CURRENT_PROGRAM, &program);
-    c.log("[gl] draw #%u geometry: program=%d first=%d count=%d", draw_index, program, first, count);
+    c.trace("[gl] draw #%u geometry: program=%d first=%d count=%d", draw_index, program, first, count);
     if (count <= 0) {
-        c.log("[gl]   count is %d -- the draw covers nothing at all", count);
+        c.trace("[gl]   count is %d -- the draw covers nothing at all", count);
         return;
     }
 
@@ -262,10 +262,10 @@ void probe_composite_geometry(GuestCall &c, GLint first, GLsizei count, std::uin
         if (utype == 0x8B5E /* sampler2D */ && uloc >= 0) {
             glGetUniformiv((GLuint)program, uloc, &value);
         }
-        c.log("[gl]   uniform %s loc=%d type=0x%04x%s", nm, uloc, (unsigned)utype,
+        c.trace("[gl]   uniform %s loc=%d type=0x%04x%s", nm, uloc, (unsigned)utype,
               utype == 0x8B5E ? (value >= 0 ? "" : " (sampler, unread)") : "");
         if (utype == 0x8B5E && value >= 0) {
-            c.log("[gl]     sampler bound to texture unit %d", value);
+            c.trace("[gl]     sampler bound to texture unit %d", value);
         }
         /* The matrix AS THE PROGRAM HOLDS IT AT DRAW TIME. The earlier dump
          * printed what was passed to glUniformMatrix4fv, which is a different
@@ -280,7 +280,7 @@ void probe_composite_geometry(GuestCall &c, GLint first, GLsizei count, std::uin
             GLfloat m[16] = {0};
             glGetUniformfv((GLuint)program, uloc, m);
             for (int row = 0; row < 4; ++row) {
-                c.log("[gl]     [% .5f % .5f % .5f % .5f]", m[row], m[row + 4], m[row + 8], m[row + 12]);
+                c.trace("[gl]     [% .5f % .5f % .5f % .5f]", m[row], m[row + 4], m[row + 8], m[row + 12]);
             }
         }
     }
@@ -303,7 +303,7 @@ void probe_composite_geometry(GuestCall &c, GLint first, GLsizei count, std::uin
         GLenum atype = 0;
         glGetActiveAttrib((GLuint)program, (GLuint)i, (GLsizei)sizeof(nm) - 1, &len, &asize, &atype, nm);
         const GLint aloc = glGetAttribLocation((GLuint)program, nm);
-        c.log("[gl]   attribute \"%s\" -> index %d (type=0x%04x)", nm, aloc, (unsigned)atype);
+        c.trace("[gl]   attribute \"%s\" -> index %d (type=0x%04x)", nm, aloc, (unsigned)atype);
     }
 
     /* A constant-magenta fragment shader fills FBO 1 and still leaves the
@@ -317,7 +317,7 @@ void probe_composite_geometry(GuestCall &c, GLint first, GLsizei count, std::uin
     GLint discard = 0, draw_buf = 0;
     discard = glIsEnabled(0x8C89) ? 1 : 0;
     glGetIntegerv(GL_DRAW_BUFFER, &draw_buf);
-    c.log("[gl]   rasterizer_discard=%d draw_buffer=0x%04x%s%s", discard, (unsigned)draw_buf,
+    c.trace("[gl]   rasterizer_discard=%d draw_buffer=0x%04x%s%s", discard, (unsigned)draw_buf,
           discard ? "  <-- RASTERIZER DISCARD IS ON: every draw is thrown away" : "",
           draw_buf == GL_NONE ? "  <-- DRAW BUFFER IS NONE: nothing can be written" : "");
 
@@ -325,7 +325,7 @@ void probe_composite_geometry(GuestCall &c, GLint first, GLsizei count, std::uin
     glGetIntegerv(GL_BLEND, &blend);
     glGetIntegerv(GL_BLEND_SRC_RGB, &src_rgb);
     glGetIntegerv(GL_BLEND_DST_RGB, &dst_rgb);
-    c.log("[gl]   blend=%d src=0x%04x dst=0x%04x", blend, (unsigned)src_rgb, (unsigned)dst_rgb);
+    c.trace("[gl]   blend=%d src=0x%04x dst=0x%04x", blend, (unsigned)src_rgb, (unsigned)dst_rgb);
 
     /* The three ways to throw a whole draw away with no error and no visible
      * difference in any state checked so far: clipped out by the scissor box,
@@ -347,15 +347,15 @@ void probe_composite_geometry(GuestCall &c, GLint first, GLsizei count, std::uin
     GLfloat drange[2] = {0.0f, 0.0f};
     glGetFloatv(GL_DEPTH_RANGE, drange);
 
-    c.log("[gl]   scissor=%d box=%d,%d %dx%d | depth_test=%d func=0x%04x mask=%d range=%.3f..%.3f "
+    c.trace("[gl]   scissor=%d box=%d,%d %dx%d | depth_test=%d func=0x%04x mask=%d range=%.3f..%.3f "
           "| colormask=%d%d%d%d | stencil=%d cull=%d",
           scissor, sbox[0], sbox[1], sbox[2], sbox[3], depth, (unsigned)dfunc, dmask,
           drange[0], drange[1], cmask[0], cmask[1], cmask[2], cmask[3], stencil, cull);
     if (scissor && (sbox[2] <= 0 || sbox[3] <= 0)) {
-        c.log("[gl]   <-- SCISSOR BOX IS EMPTY: the whole draw is clipped away");
+        c.trace("[gl]   <-- SCISSOR BOX IS EMPTY: the whole draw is clipped away");
     }
     if (!cmask[0] && !cmask[1] && !cmask[2]) {
-        c.log("[gl]   <-- COLOUR WRITES ARE MASKED OFF: the draw cannot change the screen");
+        c.trace("[gl]   <-- COLOUR WRITES ARE MASKED OFF: the draw cannot change the screen");
     }
 
     for (GLuint a = 0; a < 8; ++a) {
@@ -372,7 +372,7 @@ void probe_composite_geometry(GuestCall &c, GLint first, GLsizei count, std::uin
         void *base = nullptr;
         glGetVertexAttribPointerv(a, GL_VERTEX_ATTRIB_ARRAY_POINTER, &base);
 
-        c.log("[gl]   attrib %u: size=%d type=0x%04x stride=%d buffer=%d normalized=%d ptr=%p",
+        c.trace("[gl]   attrib %u: size=%d type=0x%04x stride=%d buffer=%d normalized=%d ptr=%p",
               a, size, (unsigned)type, stride, buf, normalized, base);
         /* 0x1406 is GL_FLOAT. Anything else, or a VBO, and the raw read below
          * would be meaningless -- say so instead of printing noise. */
@@ -385,14 +385,14 @@ void probe_composite_geometry(GuestCall &c, GLint first, GLsizei count, std::uin
             const auto *bytes = static_cast<const unsigned char *>(base);
             for (GLint v = first; v < first + count && v < first + 6; ++v) {
                 const unsigned char *p = bytes + (size_t)v * eff;
-                c.log("[gl]     v%d: %u %u %u %u (bytes%s)", v, p[0], p[1], p[2],
+                c.trace("[gl]     v%d: %u %u %u %u (bytes%s)", v, p[0], p[1], p[2],
                       size > 3 ? p[3] : 255u,
                       (p[0] | p[1] | p[2]) == 0 ? " -- BLACK" : "");
             }
             continue;
         }
         if (type != 0x1406 || buf != 0 || base == nullptr) {
-            c.log("[gl]     (not a client-side float or ubyte array -- values not dumped)");
+            c.trace("[gl]     (not a client-side float or ubyte array -- values not dumped)");
             continue;
         }
         const int eff_stride = stride != 0 ? stride : (int)(size * sizeof(GLfloat));
@@ -433,7 +433,7 @@ void log_gl_step(GuestCall &c, const char *what, int a, int b) {
     GLint fbo = 0, program = 0;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fbo);
     glGetIntegerv(GL_CURRENT_PROGRAM, &program);
-    c.log("[gl-order] fbo=%d program=%d  %s(%d, %d)", fbo, program, what, a, b);
+    c.trace("[gl-order] fbo=%d program=%d  %s(%d, %d)", fbo, program, what, a, b);
 }
 
 void gl_glDrawArrays(GuestCall &c) {
@@ -465,7 +465,7 @@ void gl_glDrawArrays(GuestCall &c) {
             const bool early = n < 3;
             const bool late = n >= 1800 && n < 1803;
             if (early || late) {
-                c.log("[gl] --- scene draw #%u into fbo %d ---", n, fbo);
+                c.trace("[gl] --- scene draw #%u into fbo %d ---", n, fbo);
                 probe_composite_texture(c, n);
                 probe_composite_geometry(c, (GLint)c.arg(1), (GLsizei)c.arg(2), n);
             }
@@ -518,7 +518,7 @@ void gl_glDrawArrays(GuestCall &c) {
                         if (lum > peak) peak = lum;
                     }
                 }
-                c.log("[gl] after composite draw #%u: window viewport %dx%d -- %u/9 pixels "
+                c.trace("[gl] after composite draw #%u: window viewport %dx%d -- %u/9 pixels "
                       "non-black (brightest sum=%u)", n, vp[2], vp[3], nonblack, peak);
             }
         }
@@ -566,7 +566,7 @@ void gl_glViewport(GuestCall &c) {
             static std::atomic<std::uint32_t> budget{3};
             if (budget.load(std::memory_order_relaxed) > 0) {
                 budget.fetch_sub(1, std::memory_order_relaxed);
-                c.log("[gl] window viewport(%u,%u,%u,%u) -> filling drawable %ux%u", x, y, w, h, dw, dh);
+                c.trace("[gl] window viewport(%u,%u,%u,%u) -> filling drawable %ux%u", x, y, w, h, dw, dh);
             }
         }
         x = 0;
@@ -579,7 +579,7 @@ void gl_glViewport(GuestCall &c) {
         static std::atomic<std::uint32_t> budget{3};
         if (have_drawable && budget.load(std::memory_order_relaxed) > 0) {
             budget.fetch_sub(1, std::memory_order_relaxed);
-            c.log("[gl] degenerate viewport(%u,%u,%u,%u) lr=0x%08x -- substituting the drawable size",
+            c.trace("[gl] degenerate viewport(%u,%u,%u,%u) lr=0x%08x -- substituting the drawable size",
                   x, y, w, h, c.lr());
         }
         if (have_drawable) { x = 0; y = 0; w = dw; h = dh; }
@@ -649,7 +649,7 @@ void probe_framebuffer_contents(GuestCall &c, GLuint fbo) {
             if (px[3] > alpha_max) alpha_max = px[3];
         }
     }
-    c.log("[gl] fbo %u contents (unbind #%u): attachment type=0x%04x name=%d viewport=%d,%d %dx%d -- "
+    c.trace("[gl] fbo %u contents (unbind #%u): attachment type=0x%04x name=%d viewport=%d,%d %dx%d -- "
           "%u/9 sampled pixels non-black (brightest sum=%u) alpha=%u..%u%s",
           fbo, n, (unsigned)att_type, att_name, vp[0], vp[1], vp[2], vp[3], nonblack, peak,
           alpha_min, alpha_max,
@@ -871,10 +871,10 @@ void log_compressed_support_once(GuestCall &c) {
     std::vector<GLint> formats((std::size_t)n, 0);
     if (n > 0) glGetIntegerv(0x86A3 /* GL_COMPRESSED_TEXTURE_FORMATS */, formats.data());
     const GLubyte *renderer = glGetString(0x1F01 /* GL_RENDERER */);
-    c.log("[gl] host renderer: %s", renderer ? (const char *)renderer : "?");
-    c.log("[gl] host advertises %d compressed texture format(s):", (int)n);
+    c.trace("[gl] host renderer: %s", renderer ? (const char *)renderer : "?");
+    c.trace("[gl] host advertises %d compressed texture format(s):", (int)n);
     for (GLint i = 0; i < n; ++i) {
-        c.log("[gl]   0x%04x %s", (unsigned)formats[i], compressed_format_name((GLenum)formats[i]));
+        c.trace("[gl]   0x%04x %s", (unsigned)formats[i], compressed_format_name((GLenum)formats[i]));
     }
 }
 
@@ -895,7 +895,7 @@ void gl_glCompressedTexImage2D(GuestCall &c) {
             first = seen.insert(internalformat).second;
         }
         if (first) {
-            c.log("[gl] engine uploads compressed format 0x%04x %s (first seen %dx%d)",
+            c.trace("[gl] engine uploads compressed format 0x%04x %s (first seen %dx%d)",
                   (unsigned)internalformat, compressed_format_name(internalformat), (int)width,
                   (int)height);
         }
@@ -1284,7 +1284,7 @@ void gl_glUniformMatrix4fv(GuestCall &c) {
             static std::atomic<std::uint32_t> budget{4};
             if (budget.load(std::memory_order_relaxed) > 0) {
                 budget.fetch_sub(1, std::memory_order_relaxed);
-                c.log("[gl] program %d: remapping mat4 uniform location %d -> %d "
+                c.trace("[gl] program %d: remapping mat4 uniform location %d -> %d "
                       "(engine cached another program's location)", program, loc, actual);
             }
             loc = actual;
@@ -1374,9 +1374,9 @@ void gl_glUniformMatrix4fv(GuestCall &c) {
             first = seen.size() < 8 && seen.insert(program).second;
         }
         if (first) {
-            c.log("[gl] screenMatrix for program %d (loc %d):", program, loc);
+            c.trace("[gl] screenMatrix for program %d (loc %d):", program, loc);
             for (int row = 0; row < 4; ++row) {
-                c.log("[gl]   % .5f % .5f % .5f % .5f", m[row], m[row + 4], m[row + 8], m[row + 12]);
+                c.trace("[gl]   % .5f % .5f % .5f % .5f", m[row], m[row + 4], m[row + 8], m[row + 12]);
             }
         }
     }
@@ -1412,7 +1412,7 @@ void gl_glGetUniformLocation(GuestCall &c) {
         static std::atomic<std::uint32_t> budget{40};
         if (budget.load(std::memory_order_relaxed) > 0) {
             budget.fetch_sub(1, std::memory_order_relaxed);
-            c.log("[gl-strict] glGetUniformLocation(program=%u, \"%s\") -> %d", c.arg(0),
+            c.trace("[gl-strict] glGetUniformLocation(program=%u, \"%s\") -> %d", c.arg(0),
                   nm.c_str(), (int)loc);
         }
     }
@@ -1434,12 +1434,12 @@ void dump_program_uniforms(GuestCall &c) {
     GLint program = 0;
     glGetIntegerv(GL_CURRENT_PROGRAM, &program);
     if (program == 0) {
-        c.log("[gl-strict] no current program -- that alone explains the INVALID_OPERATION");
+        c.trace("[gl-strict] no current program -- that alone explains the INVALID_OPERATION");
         return;
     }
     GLint count = 0;
     glGetProgramiv((GLuint)program, GL_ACTIVE_UNIFORMS, &count);
-    c.log("[gl-strict] program %d declares %d active uniform(s):", program, count);
+    c.trace("[gl-strict] program %d declares %d active uniform(s):", program, count);
     for (GLint i = 0; i < count; ++i) {
         char nm[128] = {0};
         GLsizei len = 0;
@@ -1448,7 +1448,7 @@ void dump_program_uniforms(GuestCall &c) {
         glGetActiveUniform((GLuint)program, (GLuint)i, (GLsizei)sizeof(nm) - 1, &len, &size, &type, nm);
         const GLint loc = glGetUniformLocation((GLuint)program, nm);
         /* 0x8B5C is GL_FLOAT_MAT4 -- the only type glUniformMatrix4fv accepts. */
-        c.log("[gl-strict]   loc=%d type=0x%04x%s size=%d name=%s", loc, (unsigned)type,
+        c.trace("[gl-strict]   loc=%d type=0x%04x%s size=%d name=%s", loc, (unsigned)type,
               type == 0x8B5C ? " (mat4)" : "", size, nm);
     }
 }
@@ -1459,7 +1459,7 @@ void gl_check_error_after(GuestCall &c, const char *name) {
     static std::atomic<std::uint32_t> budget{20};
     if (budget.load(std::memory_order_relaxed) == 0) return;
     budget.fetch_sub(1, std::memory_order_relaxed);
-    c.log("[gl-strict] %s -> GL error 0x%04x (r0=0x%08x r1=0x%08x r2=0x%08x r3=0x%08x) lr=0x%08x",
+    c.trace("[gl-strict] %s -> GL error 0x%04x (r0=0x%08x r1=0x%08x r2=0x%08x r3=0x%08x) lr=0x%08x",
           name, (unsigned)err, c.arg(0), c.arg(1), c.arg(2), c.arg(3), c.lr());
     if (std::strncmp(name, "glUniform", 9) == 0) dump_program_uniforms(c);
 }

@@ -12,6 +12,7 @@
  * loader now records (26962 entries in this build).
  */
 
+#include <pvz_tv/diagnostics.h>
 #include <pvz_tv/dependencies/dependency.h>
 
 #include <cstdio>
@@ -40,9 +41,9 @@ void unwind_find_exidx(GuestCall &c) {
         static bool warned = false;
         if (!warned) {
             warned = true;
-            std::printf("pvz2: [libstdc++] no PT_ARM_EXIDX covering pc=0x%08x (%s) -- "
-                        "C++ throws from there cannot unwind\n",
-                        pc, m ? m->name : "outside every module");
+            diag::report("[libstdc++] no PT_ARM_EXIDX covering pc=0x%08x (%s) -- "
+                         "C++ throws from there cannot unwind",
+                         pc, m ? m->name : "outside every module");
         }
         if (pcount != 0) c.write32(pcount, 0);
         c.set_result(0);

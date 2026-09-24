@@ -15,8 +15,15 @@ jobs:
       fail-fast: false
       matrix:
         os: [ windows-latest, ubuntu-latest ]
+        # Two players: the normal one, and the diagnostic one that traces every
+        # call the guest makes into the host (docs/ARCHITECTURE.md).
+        build:
+          - { name: normal, diagnostics: 'OFF' }
+          - { name: diagnostic, diagnostics: 'ON' }
 
     runs-on: ${{ matrix.os }}
+
+    name: ${{ matrix.os }} (${{ matrix.build.name }})
 
     steps:
       - name: Checkout
@@ -49,7 +56,18 @@ jobs:
         run: >
           cmake -S desktop -B build/desktop
           -DCMAKE_BUILD_TYPE=Release
+          -DPVZTV_DIAGNOSTICS=${{ matrix.build.diagnostics }}
           -DPython_EXECUTABLE=${{ steps.python.outputs.python-path }}
 
       - name: Build
         run: cmake --build build/desktop --config Release --target pvztv_player --parallel
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: PvZ-TV-player-${{ matrix.os }}-${{ matrix.build.name }}
+          # Multi-config generators put the binary in a Release/ subdirectory.
+          path: |
+            build/desktop/pvztv_player*
+            build/desktop/Release/pvztv_player*
+          if-no-files-found: error

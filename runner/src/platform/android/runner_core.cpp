@@ -1,3 +1,4 @@
+#include <pvz_tv/diagnostics.h>
 #include "runner_core.h"
 #include <pvz_tv/surface.h>
 #include <pvz_tv/config.h>
@@ -80,7 +81,7 @@ public:
 
     void AddTicks(uint64_t ticks) override {
         ticks_used += ticks;
-#ifndef NDEBUG
+#if defined(PVZTV_DIAGNOSTICS)
         if (jit) { // watchdog bookkeeping only; two atomic stores per block
             current_pc.store(jit->Regs()[15], std::memory_order_relaxed);
             current_lr.store(jit->Regs()[14], std::memory_order_relaxed);
@@ -323,7 +324,7 @@ public:
     }
 
     void CallSVC(uint32_t swi) override {
-#ifndef NDEBUG
+#if defined(PVZTV_DIAGNOSTICS)
         ++svc_calls;
         current_swi.store(swi, std::memory_order_relaxed);
         if (jit) {
@@ -920,8 +921,9 @@ bool RunnerCore::start() {
         }
     });
 
-#ifndef NDEBUG
-    // Debug-only: one line per guest thread every 2 s, for diagnosing hangs.
+#if defined(PVZTV_DIAGNOSTICS)
+    // Diagnostic builds only: one line per guest thread every 2 s, for
+    // diagnosing hangs.
     s_watchdog_running.store(true, std::memory_order_release);
     s_watchdog = std::thread([this]() {
         int tick = 0;

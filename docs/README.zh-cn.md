@@ -71,6 +71,11 @@ cmake -S desktop -B build/desktop
 cmake --build build/desktop --config Release
 ```
 
+加上 `-DPVZTV_DIAGNOSTICS=ON` 可以构建诊断版, 它会记录游戏进入宿主的每一次调用,
+名为 `pvztv_player-diag`, 可与普通版放在同一目录. Android 上对应
+`./gradlew assembleV115RelWithDebInfo`, 安装后与普通版共存.
+详见[调试](./ARCHITECTURE.zh-cn.md#调试).
+
 播放器会在自身可执行文件所在目录查找一切, 因此按下面的结构放好后直接运行即可:
 
 ```

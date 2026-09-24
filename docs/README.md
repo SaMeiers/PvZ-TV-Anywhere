@@ -74,6 +74,12 @@ cmake -S desktop -B build/desktop
 cmake --build build/desktop --config Release
 ```
 
+Add `-DPVZTV_DIAGNOSTICS=ON` for the diagnostic build, which traces every call
+the game makes into the host and is named `pvztv_player-diag` so it can share a
+folder with the normal one. On Android the same build is
+`./gradlew assembleV115RelWithDebInfo`, which installs beside the normal app.
+See [Debugging](./ARCHITECTURE.md#debugging).
+
 The player looks for everything next to its own executable, so put it in a
 folder like this and just run it:
 

@@ -2,6 +2,7 @@
  * Real host socket networking implementation for Homura netplay & multiplayer.
  */
 
+#include <pvz_tv/diagnostics.h>
 #include <pvz_tv/dependencies/dependency.h>
 #include <pvz_tv/runtime/guest_runtime.h>
 
@@ -174,7 +175,7 @@ void s_socket(GuestCall &c) {
         int werr = WSAGetLastError();
         c.set_errno(wsa_to_linux_errno(werr));
         c.set_result(kMinusOne);
-        printf("[net] socket(d=%d, t=0x%x, p=%d) -> FAIL (wsa=%d)\n", domain, type, protocol, werr);
+        diag::report("[net] socket(d=%d, t=0x%x, p=%d) -> FAIL (wsa=%d)", domain, type, protocol, werr);
         return;
     }
 
@@ -198,8 +199,8 @@ void s_socket(GuestCall &c) {
     if (is_nonblock) {
         c.rt->nonblocking_sockets.insert(token);
     }
-    printf("[net] socket(d=%d, t=0x%x, p=%d) -> fd=%u (host=%llu%s)\n",
-           domain, type, protocol, token, (unsigned long long)s, is_nonblock ? ", nonblock" : "");
+    PVZTV_TRACE("[net] socket(d=%d, t=0x%x, p=%d) -> fd=%u (host=%llu%s)",
+                domain, type, protocol, token, (unsigned long long)s, is_nonblock ? ", nonblock" : "");
     c.set_result(token);
 #else
     int s = ::socket(domain, base_type, protocol);
@@ -252,10 +253,10 @@ void s_connect(GuestCall &c) {
         uint32_t lerr = (werr == WSAEWOULDBLOCK) ? kEINPROGRESS : wsa_to_linux_errno(werr);
         c.set_errno(lerr);
         c.set_result(kMinusOne);
-        printf("[net] connect(fd=%u, %s) -> ret=-1 (wsa=%d, errno=%u)\n", token, endpoint.c_str(), werr, lerr);
+        diag::report("[net] connect(fd=%u, %s) -> ret=-1 (wsa=%d, errno=%u)", token, endpoint.c_str(), werr, lerr);
         return;
     }
-    printf("[net] connect(fd=%u, %s) -> 0 (immediate)\n", token, endpoint.c_str());
+    PVZTV_TRACE("[net] connect(fd=%u, %s) -> 0 (immediate)", token, endpoint.c_str());
     c.set_result(0);
 #else
     int ret = ::connect((int)s, (const struct sockaddr*)&sa, sizeof(sa));
@@ -298,10 +299,10 @@ void s_bind(GuestCall &c) {
         uint32_t lerr = wsa_to_linux_errno(werr);
         c.set_errno(lerr);
         c.set_result(kMinusOne);
-        printf("[net] bind(fd=%u, %s) -> ret=-1 (wsa=%d, errno=%u)\n", token, endpoint.c_str(), werr, lerr);
+        diag::report("[net] bind(fd=%u, %s) -> ret=-1 (wsa=%d, errno=%u)", token, endpoint.c_str(), werr, lerr);
         return;
     }
-    printf("[net] bind(fd=%u, %s) -> 0\n", token, endpoint.c_str());
+    PVZTV_TRACE("[net] bind(fd=%u, %s) -> 0", token, endpoint.c_str());
     c.set_result(0);
 #else
     int ret = ::bind((int)s, (const struct sockaddr*)&sa, sizeof(sa));
@@ -333,10 +334,10 @@ void s_listen(GuestCall &c) {
         uint32_t lerr = wsa_to_linux_errno(werr);
         c.set_errno(lerr);
         c.set_result(kMinusOne);
-        printf("[net] listen(fd=%u, b=%d) -> ret=-1 (wsa=%d, errno=%u)\n", token, backlog, werr, lerr);
+        diag::report("[net] listen(fd=%u, b=%d) -> ret=-1 (wsa=%d, errno=%u)", token, backlog, werr, lerr);
         return;
     }
-    printf("[net] listen(fd=%u, b=%d) -> 0\n", token, backlog);
+    PVZTV_TRACE("[net] listen(fd=%u, b=%d) -> 0", token, backlog);
     c.set_result(0);
 #else
     int ret = ::listen((int)s, backlog);
@@ -373,7 +374,7 @@ void s_accept(GuestCall &c) {
             c.set_errno(kEWOULDBLOCK);
         } else {
             c.set_errno(wsa_to_linux_errno(werr));
-            printf("[net] accept(fd=%u) -> ret=-1 (wsa=%d)\n", token, werr);
+            diag::report("[net] accept(fd=%u) -> ret=-1 (wsa=%d)", token, werr);
         }
         c.set_result(kMinusOne);
         return;
@@ -393,7 +394,7 @@ void s_accept(GuestCall &c) {
         c.write32(addrlen_ptr, sizeof(client_sa));
     }
 
-    printf("[net] accept(fd=%u) -> new_client_fd=%u (%s)\n", token, newtok, addr_to_str(client_sa).c_str());
+    PVZTV_TRACE("[net] accept(fd=%u) -> new_client_fd=%u (%s)", token, newtok, addr_to_str(client_sa).c_str());
     c.set_result(newtok);
 #else
     socklen_t ulen = sizeof(client_sa);
@@ -512,8 +513,8 @@ void s_sendto(GuestCall &c) {
         } else {
             c.set_errno(wsa_to_linux_errno(werr));
             if (psa) {
-                printf("[net] sendto(fd=%u, len=%u, %s) -> -1 (wsa=%d)\n",
-                       token, len, addr_to_str(dest_sa).c_str(), werr);
+                diag::report("[net] sendto(fd=%u, len=%u, %s) -> -1 (wsa=%d)",
+                             token, len, addr_to_str(dest_sa).c_str(), werr);
             }
         }
         c.set_result(kMinusOne);
@@ -724,14 +725,14 @@ void s_getsockopt(GuestCall &c) {
             if (optlen_ptr != 0 && c.in_bounds(optlen_ptr, 4)) {
                 c.write32(optlen_ptr, 4);
             }
-            printf("[net] getsockopt(fd=%u, SO_ERROR) -> wsa=%d (errno=%d)\n", token, werr, linux_err);
+            diag::report("[net] getsockopt(fd=%u, SO_ERROR) -> wsa=%d (errno=%d)", token, werr, linux_err);
             c.set_result(0);
             return;
         }
         int werr_fail = WSAGetLastError();
         c.set_errno(wsa_to_linux_errno(werr_fail));
         c.set_result(kMinusOne);
-        printf("[net] getsockopt(fd=%u, SO_ERROR) -> FAIL (wsa=%d)\n", token, werr_fail);
+        diag::report("[net] getsockopt(fd=%u, SO_ERROR) -> FAIL (wsa=%d)", token, werr_fail);
         return;
     }
 
@@ -1040,7 +1041,7 @@ void s_select(GuestCall &c) {
         int werr = WSAGetLastError();
         c.set_errno(wsa_to_linux_errno(werr));
         c.set_result(kMinusOne);
-        printf("[net] select(nfds=%u) -> ret=-1 (wsa=%d)\n", nfds, werr);
+        diag::report("[net] select(nfds=%u) -> ret=-1 (wsa=%d)", nfds, werr);
         return;
     }
 #else
@@ -1450,7 +1451,7 @@ void s_ioctl(GuestCall &c) {
             }
 
             c.write32(argp, written);
-            printf("[ioctl] SIOCGIFCONF returned %u bytes (%zu interfaces available)\n", written, ifaces.size());
+            PVZTV_TRACE("[ioctl] SIOCGIFCONF returned %u bytes (%zu interfaces available)", written, ifaces.size());
             c.set_result(0);
             return;
         }
@@ -1590,7 +1591,7 @@ void s_ioctl(GuestCall &c) {
         }
 
         default: {
-            printf("[ioctl] unhandled request 0x%08X on token %u\n", request, token);
+            diag::report("[ioctl] unhandled request 0x%08X on token %u", request, token);
             c.set_errno(kENOTTY);
             c.set_result(kMinusOne);
             return;

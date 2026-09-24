@@ -21,18 +21,18 @@ void dl_open(GuestCall &c) {
     uint32_t path_ptr = c.arg(0);
     uint32_t flags = c.arg(1);
     if (path_ptr == 0) {
-        c.log("[libdl] dlopen(NULL, 0x%x) -> handle 0x%08X", flags, kHandleSelf);
+        c.trace("[libdl] dlopen(NULL, 0x%x) -> handle 0x%08X", flags, kHandleSelf);
         c.set_result(kHandleSelf);
         return;
     }
     std::string name = c.cstr(path_ptr, 512);
-    c.log("[libdl] dlopen(\"%s\", 0x%x) [caller lr=0x%08X]", name.c_str(), flags, c.lr());
+    c.trace("[libdl] dlopen(\"%s\", 0x%x) [caller lr=0x%08X]", name.c_str(), flags, c.lr());
 
     if (c.img) {
         for (uint32_t i = 0; i < c.img->module_count; ++i) {
             if (name.find(c.img->modules[i].name) != std::string::npos ||
                 std::string(c.img->modules[i].name).find(name) != std::string::npos) {
-                c.log("[libdl] dlopen(\"%s\") -> module[%u] '%s' handle 0x%08X",
+                c.trace("[libdl] dlopen(\"%s\") -> module[%u] '%s' handle 0x%08X",
                       name.c_str(), i, c.img->modules[i].name, 0x20000001 + i);
                 c.set_result(0x20000001 + i);
                 return;
@@ -80,7 +80,7 @@ void dl_sym(GuestCall &c) {
     }
 
     if (addr == 0) // a resolved symbol is the normal case and there are thousands of them
-        c.log("[libdl] dlsym(0x%08X, \"%s\") NOT FOUND [caller lr=0x%08X]", handle, sym_name.c_str(), c.lr());
+        c.trace("[libdl] dlsym(0x%08X, \"%s\") NOT FOUND [caller lr=0x%08X]", handle, sym_name.c_str(), c.lr());
     c.set_result(addr);
 }
 

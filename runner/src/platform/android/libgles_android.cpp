@@ -57,7 +57,7 @@ void report_gl_error(GuestCall &c, const char *what) {
     if (err == GL_NO_ERROR) return;
     if (budget.load(std::memory_order_relaxed) == 0) return;
     budget.fetch_sub(1, std::memory_order_relaxed);
-    c.log("[gl] %s -> GL error 0x%04x", what, (unsigned)err);
+    c.trace("[gl] %s -> GL error 0x%04x", what, (unsigned)err);
 }
 
 /* Same, but says whether there WAS an error, so a draw can follow up with the
@@ -69,7 +69,7 @@ bool gl_peek_error_for_draw(GuestCall &c, const char *what) {
     static std::atomic<std::uint32_t> budget{24};
     if (budget.load(std::memory_order_relaxed) > 0) {
         budget.fetch_sub(1, std::memory_order_relaxed);
-        c.log("[gl] %s -> GL error 0x%04x", what, (unsigned)err);
+        c.trace("[gl] %s -> GL error 0x%04x", what, (unsigned)err);
     }
     return true;
 }
@@ -132,7 +132,7 @@ void gl_glViewport(GuestCall &c) {
             static std::atomic<std::uint32_t> budget{3};
             if (budget.load(std::memory_order_relaxed) > 0) {
                 budget.fetch_sub(1, std::memory_order_relaxed);
-                c.log("[gl] window viewport(%u,%u,%u,%u) -> filling drawable %ux%u", x, y, w, h, dw, dh);
+                c.trace("[gl] window viewport(%u,%u,%u,%u) -> filling drawable %ux%u", x, y, w, h, dw, dh);
             }
         }
         x = 0;
@@ -145,7 +145,7 @@ void gl_glViewport(GuestCall &c) {
         static std::atomic<std::uint32_t> budget{3};
         if (have_drawable && budget.load(std::memory_order_relaxed) > 0) {
             budget.fetch_sub(1, std::memory_order_relaxed);
-            c.log("[gl] degenerate viewport(%u,%u,%u,%u) lr=0x%08x -- substituting the drawable size",
+            c.trace("[gl] degenerate viewport(%u,%u,%u,%u) lr=0x%08x -- substituting the drawable size",
                   x, y, w, h, c.lr());
         }
         if (have_drawable) { x = 0; y = 0; w = dw; h = dh; }
@@ -381,10 +381,10 @@ void log_compressed_support_once(GuestCall &c) {
     std::vector<GLint> formats((std::size_t)n, 0);
     if (n > 0) glGetIntegerv(0x86A3 /* GL_COMPRESSED_TEXTURE_FORMATS */, formats.data());
     const GLubyte *renderer = glGetString(0x1F01 /* GL_RENDERER */);
-    c.log("[gl] host renderer: %s", renderer ? (const char *)renderer : "?");
-    c.log("[gl] host advertises %d compressed texture format(s):", (int)n);
+    c.trace("[gl] host renderer: %s", renderer ? (const char *)renderer : "?");
+    c.trace("[gl] host advertises %d compressed texture format(s):", (int)n);
     for (GLint i = 0; i < n; ++i) {
-        c.log("[gl]   0x%04x %s", (unsigned)formats[i], compressed_format_name((GLenum)formats[i]));
+        c.trace("[gl]   0x%04x %s", (unsigned)formats[i], compressed_format_name((GLenum)formats[i]));
     }
 }
 
@@ -405,7 +405,7 @@ void gl_glCompressedTexImage2D(GuestCall &c) {
             first = seen.insert(internalformat).second;
         }
         if (first) {
-            c.log("[gl] engine uploads compressed format 0x%04x %s (first seen %dx%d)",
+            c.trace("[gl] engine uploads compressed format 0x%04x %s (first seen %dx%d)",
                   (unsigned)internalformat, compressed_format_name(internalformat), (int)width,
                   (int)height);
         }
@@ -784,7 +784,7 @@ void gl_glUniformMatrix4fv(GuestCall &c) {
             static std::atomic<std::uint32_t> budget{4};
             if (budget.load(std::memory_order_relaxed) > 0) {
                 budget.fetch_sub(1, std::memory_order_relaxed);
-                c.log("[gl] program %d: remapping mat4 uniform location %d -> %d "
+                c.trace("[gl] program %d: remapping mat4 uniform location %d -> %d "
                       "(engine cached another program's location)", program, loc, actual);
             }
             loc = actual;
@@ -828,7 +828,7 @@ void gl_glUniformMatrix4fv(GuestCall &c) {
             static std::atomic<std::uint32_t> budget{4};
             if (budget.load(std::memory_order_relaxed) > 0) {
                 budget.fetch_sub(1, std::memory_order_relaxed);
-                c.log("[gl] program %d: screenMatrix upload is non-finite (inf/nan) -- %s",
+                c.trace("[gl] program %d: screenMatrix upload is non-finite (inf/nan) -- %s",
                       program, it != last_good.end() ? "substituting the last finite one"
                                                      : "no finite matrix seen yet, dropping the upload");
             }
@@ -874,9 +874,9 @@ void gl_glUniformMatrix4fv(GuestCall &c) {
             first = seen.size() < 8 && seen.insert(program).second;
         }
         if (first) {
-            c.log("[gl] screenMatrix for program %d (loc %d):", program, loc);
+            c.trace("[gl] screenMatrix for program %d (loc %d):", program, loc);
             for (int row = 0; row < 4; ++row) {
-                c.log("[gl]   % .5f % .5f % .5f % .5f", m[row], m[row + 4], m[row + 8], m[row + 12]);
+                c.trace("[gl]   % .5f % .5f % .5f % .5f", m[row], m[row + 4], m[row + 8], m[row + 12]);
             }
         }
     }
@@ -912,7 +912,7 @@ void gl_glGetUniformLocation(GuestCall &c) {
         static std::atomic<std::uint32_t> budget{40};
         if (budget.load(std::memory_order_relaxed) > 0) {
             budget.fetch_sub(1, std::memory_order_relaxed);
-            c.log("[gl-strict] glGetUniformLocation(program=%u, \"%s\") -> %d", c.arg(0),
+            c.trace("[gl-strict] glGetUniformLocation(program=%u, \"%s\") -> %d", c.arg(0),
                   nm.c_str(), (int)loc);
         }
     }
@@ -929,7 +929,7 @@ void gl_check_error_after(GuestCall &c, const char *name) {
     static std::atomic<std::uint32_t> budget{20};
     if (budget.load(std::memory_order_relaxed) == 0) return;
     budget.fetch_sub(1, std::memory_order_relaxed);
-    c.log("[gl] %s -> GL error 0x%04x (r0=0x%08x r1=0x%08x r2=0x%08x r3=0x%08x) lr=0x%08x",
+    c.trace("[gl] %s -> GL error 0x%04x (r0=0x%08x r1=0x%08x r2=0x%08x r3=0x%08x) lr=0x%08x",
           name, (unsigned)err, c.arg(0), c.arg(1), c.arg(2), c.arg(3), c.lr());
 }
 

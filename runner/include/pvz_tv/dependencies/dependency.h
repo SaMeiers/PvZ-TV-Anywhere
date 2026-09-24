@@ -80,9 +80,13 @@ struct GuestCall {
     int fd(std::uint32_t token) const;
 
     /* --- reporting ---
-     * Takes the runtime's log lock, so interleaved guest threads don't shred
-     * each other's lines. Prefix is added automatically. */
+     * Serialised against the rest of the runner's output, so interleaved guest
+     * threads don't shred each other's lines; the prefix is added
+     * automatically. log() is for things going wrong and always prints;
+     * trace() is the running commentary of a diagnostic build and prints
+     * nothing in a normal one (see pvz_tv/diagnostics.h). */
     void log(const char *fmt, ...) const;
+    void trace(const char *fmt, ...) const;
 
     /* --- operations that need the executing environment ---
      *

@@ -16,6 +16,7 @@ endif()
 
 add_library(pvztv_runner ${PVZTV_RUNNER_KIND}
     src/config.cpp
+    src/diagnostics.cpp
     src/surface.cpp
     src/elf32/elf32_loader.c
     src/runtime/guest_heap.cpp
@@ -42,6 +43,13 @@ add_library(pvztv_runner ${PVZTV_RUNNER_KIND}
     src/dependencies/libz.cpp
     src/dependencies/vfs.cpp
 )
+
+# The diagnostic build traces every call the guest makes into the host; the
+# normal build compiles that commentary out entirely. See pvz_tv/diagnostics.h.
+option(PVZTV_DIAGNOSTICS "Build with the full guest-call tracing" OFF)
+if(PVZTV_DIAGNOSTICS)
+    target_compile_definitions(pvztv_runner PUBLIC PVZTV_DIAGNOSTICS=1)
+endif()
 
 target_include_directories(pvztv_runner PUBLIC include)
 target_include_directories(pvztv_runner PRIVATE src)

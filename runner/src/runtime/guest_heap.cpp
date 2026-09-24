@@ -1,3 +1,4 @@
+#include <pvz_tv/diagnostics.h>
 #include <pvz_tv/runtime/guest_heap.h>
 
 #include <pvz_tv/config.h>
@@ -18,14 +19,13 @@ void GuestHeap::report_exhausted(uint32_t want, uint32_t align) {
      * thousands of small pieces cannot serve one 4MB texture, and the fix for
      * that is not a bigger heap. */
     uint32_t largest = free_by_size_.empty() ? 0 : free_by_size_.rbegin()->first;
-    std::printf("pvz2: [heap] EXHAUSTED -- %u bytes%s refused. in use %llu / %u MB "
-                "(peak %llu MB), %zu free holes, largest %u KB\n",
-                want, align > 8 ? " (aligned)" : "", (unsigned long long)(in_use_ >> 20), total_ >> 20,
-                (unsigned long long)(peak_in_use_ >> 20), free_by_size_.size(), largest >> 10);
+    diag::report("[heap] EXHAUSTED -- %u bytes%s refused. in use %llu / %u MB "
+                 "(peak %llu MB), %zu free holes, largest %u KB",
+                 want, align > 8 ? " (aligned)" : "", (unsigned long long)(in_use_ >> 20), total_ >> 20,
+                 (unsigned long long)(peak_in_use_ >> 20), free_by_size_.size(), largest >> 10);
     if (exhausted_reports_ == kMaxReports) {
-        std::printf("pvz2: [heap] further exhaustion reports suppressed\n");
+        diag::report("[heap] further exhaustion reports suppressed");
     }
-    std::fflush(stdout);
 }
 
 void GuestHeap::usage(uint64_t &in_use, uint64_t &peak, uint64_t &total) {

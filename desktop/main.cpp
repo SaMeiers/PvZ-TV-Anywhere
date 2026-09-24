@@ -39,6 +39,7 @@
 #include <pvz_tv/surface.h>
 #include <pvz_tv/gfx/gl_requirements.h>
 #include <pvz_tv/config.h>
+#include <pvz_tv/diagnostics.h>
 
 // Global window handle for EGL layer
 SDL_Window *g_sdl_window = nullptr;
@@ -361,7 +362,7 @@ public:
             thread_jit.Regs()[15] = pc;
             thread_jit.SetCpsr(cpsr);
 
-            printf("[+] Guest thread %u started at 0x%08X (arg=0x%08X, stack_top=0x%08X)\n",
+            PVZTV_TRACE("[+] Guest thread %u started at 0x%08X (arg=0x%08X, stack_top=0x%08X)",
                    id, start_routine, arg, stack_top);
 
             register_active_jit(id, "guest_thread", &thread_jit, &thread_env);
@@ -372,31 +373,7 @@ public:
             unregister_active_jit(&thread_jit);
 
             uint32_t retval = thread_jit.Regs()[0];
-            printf("[+] Guest thread %u finished with retval=0x%08X\n", id, retval);
-
-            if (id == 7) {
-                uint32_t ptrAddr = img->modules[0].base + 0x00715d50;
-                uint32_t lawnApp = (ptrAddr + 4 <= img->mem_size) ? *(uint32_t*)&img->mem[ptrAddr] : 0;
-                printf("[DEBUG LoadingThread Completed] lawnApp=0x%08X\n", lawnApp);
-                if (lawnApp && lawnApp + 0x700 <= img->mem_size) {
-                    bool failed = img->mem[lawnApp + 0x571];
-                    bool completed = img->mem[lawnApp + 0x56E];
-                    bool loaded = img->mem[lawnApp + 0x56F];
-                    uint32_t resMgr = *(uint32_t*)&img->mem[lawnApp + 0x6cc];
-                    printf("  -> mLoadingFailed=%d, mLoadingThreadCompleted=%d, mLoaded=%d, mResourceManager=0x%08X\n",
-                           failed, completed, loaded, resMgr);
-                    if (resMgr && resMgr + 0x200 <= img->mem_size) {
-                        bool resFailed = img->mem[resMgr + 0x12c];
-                        uint32_t errPtr = *(uint32_t*)&img->mem[resMgr + 0xf8];
-                        const char *errStr = (errPtr && errPtr < img->mem_size) ? (const char*)&img->mem[errPtr] : "(null)";
-                        printf("  -> resMgr->mHasFailed=%d, errStr='%s'\n", resFailed, errStr);
-                    }
-                    if (failed) {
-                        printf("[!] Clearing mLoadingFailed to prevent unwanted shutdown!\n");
-                        img->mem[lawnApp + 0x571] = 0;
-                    }
-                }
-            }
+            PVZTV_TRACE("[+] Guest thread %u finished with retval=0x%08X", id, retval);
 
             {
                 std::lock_guard<std::mutex> lock(rt->threads_lock);
@@ -516,7 +493,7 @@ public:
             c.env = this;
             c.halt_fn = [](void *env, const char *why) {
                 auto *e = static_cast<PvzTvGuestEnv*>(env);
-                printf("[*] Guest requested halt: %s\n", why ? why : "unspecified");
+                PVZTV_TRACE("[*] Guest requested halt: %s", why ? why : "unspecified");
                 if (e->rt) e->rt->shutdown_requested.store(true, std::memory_order_release);
                 e->should_halt = true;
                 e->jit->HaltExecution();
@@ -782,6 +759,7 @@ int main(int argc, char *argv[]) {
     setvbuf(stderr, NULL, _IONBF, 0);
     printf("=========================================\n");
     printf("   PvZ-TV-Native: Android TV 64-bit Port \n");
+    printf("   %s build\n", pvz_tv::diag::build_name());
     printf("=========================================\n\n");
 
     // An explicit path is resolved against the caller's directory; everything
@@ -992,19 +970,19 @@ int main(int argc, char *argv[]) {
     // Execute static constructors
     printf("[*] Running C++ static constructors (.init_array)...\n");
     uint32_t executedCtors = 0;
-    // Set PVZTV_TRACE_SVC=1 to log every call the guest makes into the host,
-    // which is how you find the last one before a crash.
-    env.trace_svc = std::getenv("PVZTV_TRACE_SVC") != nullptr;
+    // PVZTV_TRACE=2 logs every call the guest makes into the host, which is
+    // how you find the last one before a crash. Diagnostic builds only.
+    env.trace_svc = pvz_tv::diag::tracing_svc();
 
     for (uint32_t k = 0; k < image.module_count; ++k) {
         const pvz2_elf_module_t &m = image.modules[image.init_order[k]];
-        printf("--- Executing %u constructors for [%s] ---\n", m.init_array_count, m.name);
+        PVZTV_TRACE("--- Executing %u constructors for [%s] ---", m.init_array_count, m.name);
 
         for (uint32_t i = 0; i < m.init_array_count; ++i) {
             uint32_t entryAddr = 0;
             memcpy(&entryAddr, &image.mem[m.base + m.init_array_vaddr + i * 4], 4);
             if (entryAddr == 0 || entryAddr == 0xFFFFFFFFu) continue;
-            printf("  [%u/%u] ctor at 0x%08X\n", i + 1, m.init_array_count, entryAddr);
+            PVZTV_TRACE("  [%u/%u] ctor at 0x%08X", i + 1, m.init_array_count, entryAddr);
 
             env.should_halt = false;
             jit.Regs()[0] = 0;
@@ -1068,8 +1046,12 @@ int main(int argc, char *argv[]) {
     pvz_tv::guest_tls::self_id = 1;
     register_active_jit(1, "main", &jit, &env);
 
-    std::atomic<bool> watchdog_running{true};
-    std::thread watchdog([&]() {
+    // The watchdog prints what every guest thread is doing every 5 seconds:
+    // indispensable when the game hangs, pure noise when it does not, so it
+    // exists only in a diagnostic build.
+    std::atomic<bool> watchdog_running{pvz_tv::diag::kBuiltIn};
+    std::thread watchdog;
+    if (pvz_tv::diag::kBuiltIn) watchdog = std::thread([&]() {
         int tick = 0;
         while (watchdog_running.load(std::memory_order_relaxed)) {
             std::this_thread::sleep_for(std::chrono::seconds(5));
