@@ -477,23 +477,9 @@ void GridItem::UpdateBurialMound() {
                         ++aGridY;
                     }
 
-                    // 限制Y坐标范围
-                    if (aGridY > 0) {
-                        if (aGridY >= 4) {
-                            aGridY = 4;
-                        }
-                    } else {
-                        aGridY = 0;
-                    }
-
-                    // 限制X坐标范围
-                    if (aGridX > 0) {
-                        if (aGridX >= 8) {
-                            aGridX = 8;
-                        }
-                    } else {
-                        aGridX = 0;
-                    }
+                    const int aLastRow = mBoard->StageHas6Rows() ? 5 : 4;
+                    aGridY = std::clamp(aGridY, 0, aLastRow);
+                    aGridX = std::clamp(aGridX, 0, 8);
 
                     aZombie->RiseFromGrave(aGridX, aGridY);
                 }

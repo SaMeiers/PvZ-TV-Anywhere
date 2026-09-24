@@ -69,7 +69,7 @@ namespace {
     }
 
     bool IsLocalVSMatch(const Board *board) {
-        return board != nullptr && board->mApp != nullptr && board->mApp->IsVSMode() && !IsOnlineModeActive();
+        return board != nullptr && board->mApp != nullptr && board->mApp->IsVSMode() && !IsOnlineModeActive() && !gIsReplayMode;
     }
 
     bool IsMatchPlaying(const Board *board) {
@@ -276,7 +276,7 @@ bool IsEnhancedAIEnabled() {
 }
 
 bool HasEnhancedAIProduction(Board *board, VSSide side) {
-    return IsLocalVSMatch(board) && !gIsReplayMode && VSSetupAddonWidget::msAIEnhancementMode && IsSideEnabled(side);
+    return IsLocalVSMatch(board) && VSSetupAddonWidget::msAIEnhancementMode && IsSideEnabled(side);
 }
 
 int ScaleEnhancedAIProductionCooldown(int cooldown) {
@@ -304,13 +304,13 @@ VSActionResult ExecuteActionNow(Board *board, const VSAction &action) {
 
 void Update(Board *board) {
     ResetForBoard(board);
-    SyncBuiltinAgents();
     if (!IsLocalVSMatch(board) || !IsMatchPlaying(board)) {
         if (gRuntime.matchActive) {
             ResetMatchRuntime();
         }
         return;
     }
+    SyncBuiltinAgents();
 
     if (!gRuntime.matchActive) {
         ResetMatchRuntime();
