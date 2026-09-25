@@ -28,7 +28,13 @@ static std::atomic<bool> g_audio_paused{false};
 static uint32_t g_bytes_per_sec = 176400;
 
 static constexpr int kNumBuffers = 16;
-static constexpr int kMaxQueuedBuffers = 6; // Keep ~100ms queued
+/* How much audio may sit in the queue waiting to be played. This is the delay
+ * between the game deciding to make a sound and the sound coming out, so it is
+ * a time, not a count of buffers: the guest hands over 8 KB at a time, which is
+ * 46 ms at 44.1 kHz stereo, and a queue six of those deep was a third of a
+ * second behind. Two buffers is the floor -- one playing, one ready -- so the
+ * mixer never runs dry. */
+static constexpr uint32_t kMaxQueuedMs = 90;
 static std::vector<uint8_t> g_ring_buffers[kNumBuffers];
 static int g_write_index = 0;
 
@@ -161,11 +167,17 @@ static void ag_audio_write(GuestCall &c) {
         return;
     }
 
-    // Flow control: wait while OpenSL queue has >= kMaxQueuedBuffers (pacing with real-time playback)
+    // Flow control: let the queue grow to kMaxQueuedMs of audio and no further,
+    // which paces the guest against real-time playback.
+    const uint32_t queued_bytes_max = (g_bytes_per_sec / 1000u) * kMaxQueuedMs;
+    uint32_t max_buffers = (size_bytes > 0) ? (queued_bytes_max / size_bytes) : 2u;
+    if (max_buffers < 2u) max_buffers = 2u;
+    if (max_buffers > (uint32_t)kNumBuffers) max_buffers = (uint32_t)kNumBuffers;
+
     while (g_audio_inited.load() && g_playerBufferQueue != nullptr) {
         SLAndroidSimpleBufferQueueState state;
         SLresult res = (*g_playerBufferQueue)->GetState(g_playerBufferQueue, &state);
-        if (res != SL_RESULT_SUCCESS || state.count < kMaxQueuedBuffers) {
+        if (res != SL_RESULT_SUCCESS || state.count < max_buffers) {
             break;
         }
         g_audio_cv.wait_for(lk, std::chrono::milliseconds(15));
