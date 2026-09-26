@@ -70,7 +70,8 @@ jobs:
 
       - name: Report
         run: |
-          existing=$(gh issue list --state open --label upstream --limit 1 \
+          # Found by title, so a missing label never hides the open issue.
+          existing=$(gh issue list --state open --limit 1 \
                        --search "$ISSUE_TITLE in:title" --json number --jq '.[0].number // empty')
 
           if [ "${{ steps.compare.outputs.count }}" -eq 0 ]; then
@@ -80,9 +81,10 @@ jobs:
             exit 0
           fi
 
-          # The label has to exist before an issue can carry it.
+          # The label has to exist before an issue can carry it; it usually
+          # already does, and the report matters more than the label does.
           gh label create upstream --description "Changes waiting in the upstream repository" \
-            --color FBCA04 2>/dev/null || true
+            --color FBCA04 || true
 
           if [ -n "$existing" ]; then
             gh issue edit "$existing" --body-file upstream-report.md
@@ -90,7 +92,10 @@ jobs:
           else
             gh issue create --title "$ISSUE_TITLE" --label upstream \
               --assignee "${{ github.repository_owner }}" \
-              --body-file upstream-report.md
+              --body-file upstream-report.md \
+              || gh issue create --title "$ISSUE_TITLE" \
+                   --assignee "${{ github.repository_owner }}" \
+                   --body-file upstream-report.md
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
