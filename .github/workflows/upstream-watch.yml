@@ -1,0 +1,98 @@
+name: Upstream watch
+
+# Upstream moves on its own schedule, and the only way to notice used to be
+# opening their repository and looking. This checks for us and keeps a single
+# issue up to date with whatever is new, so the notification lands wherever
+# GitHub already reaches you.
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  # So you can also ask right now, from the Actions tab.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  UPSTREAM: ZombieYetis/PlantsVsZombies-AndroidTV
+  ISSUE_TITLE: Upstream has new work
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Compare with upstream
+        id: compare
+        run: |
+          git remote add upstream "https://github.com/$UPSTREAM.git"
+          git fetch --quiet upstream main
+
+          count=$(git rev-list --count HEAD..upstream/main)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "Upstream is $count commit(s) ahead."
+
+          {
+            echo "body<<END_OF_BODY"
+            if [ "$count" -gt 0 ]; then
+              echo "[$UPSTREAM](https://github.com/$UPSTREAM) is **$count commit(s)** ahead of our \`main\`:"
+              echo
+              git log --reverse --pretty='- [`%h`](https://github.com/'"$UPSTREAM"'/commit/%H) %s' HEAD..upstream/main
+              echo
+              echo "Merge them with:"
+              echo '```sh'
+              echo "git fetch origin main && git merge origin/main"
+              echo '```'
+            fi
+
+            latest=$(gh api "repos/$UPSTREAM/releases" \
+              --jq 'map(select(.draft | not)) | first
+                    | "- **\(.tag_name)**\(if .prerelease then " (pre-release)" else "" end) — published \(.published_at), [release notes](\(.html_url))"' \
+              2>/dev/null || true)
+            if [ -n "$latest" ]; then
+              echo
+              echo "Their latest release:"
+              echo
+              echo "$latest"
+            fi
+
+            echo
+            echo "_Checked $(date -u '+%Y-%m-%d %H:%M UTC'). This issue is rewritten on every check and closes itself once we have caught up._"
+            echo "END_OF_BODY"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Report
+        run: |
+          existing=$(gh issue list --state open --label upstream --limit 1 \
+                       --search "$ISSUE_TITLE in:title" --json number --jq '.[0].number // empty')
+
+          if [ "${{ steps.compare.outputs.count }}" -eq 0 ]; then
+            if [ -n "$existing" ]; then
+              gh issue close "$existing" --comment "We are level with upstream again."
+            fi
+            exit 0
+          fi
+
+          # The label has to exist before an issue can carry it.
+          gh label create upstream --description "Changes waiting in the upstream repository" \
+            --color FBCA04 2>/dev/null || true
+
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body "${{ steps.compare.outputs.body }}"
+            echo "Updated issue #$existing."
+          else
+            gh issue create --title "$ISSUE_TITLE" --label upstream \
+              --assignee "${{ github.repository_owner }}" \
+              --body "${{ steps.compare.outputs.body }}"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
