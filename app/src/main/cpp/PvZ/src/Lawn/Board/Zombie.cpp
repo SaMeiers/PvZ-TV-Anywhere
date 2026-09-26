@@ -857,7 +857,7 @@ void Zombie::UpdateZombieCrossingGuard() {
                 UnbindRealatedZombie();
             } else {
                 mZombiePhase = ZombiePhase::PHASE_ZOMBIE_NORMAL;
-                mPhaseCounter = 1000;
+                mPhaseCounter = 500;
                 StartWalkAnim(10);
                 if (IsRemoteServer()) {
                     U16U16_Event event{};
@@ -883,7 +883,7 @@ void Zombie::UpdateZombieCrossingGuard() {
                 }
             }
             mZombiePhase = ZombiePhase::PHASE_ZOMBIE_NORMAL;
-            mPhaseCounter = 1000;
+            mPhaseCounter = 1500;
             StartWalkAnim(10);
         }
         return;
@@ -937,7 +937,7 @@ bool Zombie::HasScientistTriggerTarget() {
 
     Zombie *aZombie = nullptr;
     while (mBoard->IterateZombies(aZombie)) {
-        if (aZombie == this || aZombie->IsDeadOrDying() || !mHasHead || !aZombie->IsOnBoard()) {
+        if (aZombie == this || aZombie->IsDeadOrDying() || !aZombie->mHasHead || !aZombie->IsOnBoard()) {
             continue;
         }
 
@@ -1984,8 +1984,9 @@ void Zombie::UpdateZombieJackson() {
     } else if (mZombiePhase == ZombiePhase::PHASE_DANCER_SNAPPING_FINGERS) {
         Reanimation *aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
         if (aBodyReanim->mLoopCount > 0) {
+            mApp->PlayFoley(FoleyType::FOLEY_DANCER);
             SummonBackupDancers();
-            mBoard->SetDanceMode(true);
+            mBoard->SetJacksonDanceMode(true);
             mZombiePhase = ZombiePhase::PHASE_DANCER_SNAPPING_FINGERS_HOLD;
             mPhaseCounter = 200;
         }
@@ -2130,7 +2131,7 @@ void Zombie::JacksonDie() {
         return;
 
     if (!mBoard->GetAliveJacksonZombie()) {
-        mBoard->SetDanceMode(false);
+        mBoard->SetJacksonDanceMode(false);
         msDeadFollowers.clear();
     }
     mApp->mSoundSystem->StopFoley(FoleyType::FOLEY_DANCER);
@@ -6303,10 +6304,10 @@ void Zombie::DieNoLoot() {
         return;
     }
 
-    if (IsRemoteClientOrViewer())
-        return;
-
     if (mApp->mGameScene == SCENE_PLAYING) {
+        if (IsRemoteClientOrViewer()) {
+            return;
+        }
         if (IsRemoteServer()) {
             U16_Event event = {{EventType::EVENT_SERVER_BOARD_ZOMBIE_DIE}, uint16_t(mBoard->mZombies.DataArrayGetID(this))};
             netplay::PutEvent(event);
@@ -8214,7 +8215,8 @@ void Zombie::StartWalkAnim(int theBlendTime) {
         PlayZombieReanim("anim_walk_nopaper", ReanimLoopType::REANIM_LOOP, theBlendTime, 0.0f);
     } else if (mInPool && mZombieHeight != ZombieHeight::HEIGHT_IN_TO_POOL && mZombieHeight != ZombieHeight::HEIGHT_OUT_OF_POOL && aBodyReanim->TrackExists("anim_swim")) {
         PlayZombieReanim("anim_swim", ReanimLoopType::REANIM_LOOP, theBlendTime, 0.0f);
-    } else if ((mZombieType == ZombieType::ZOMBIE_NORMAL || mZombieType == ZombieType::ZOMBIE_TRAFFIC_CONE || mZombieType == ZombieType::ZOMBIE_PAIL) && mBoard->mDanceMode) {
+    } else if ((mZombieType == ZombieType::ZOMBIE_NORMAL || mZombieType == ZombieType::ZOMBIE_TRAFFIC_CONE || mZombieType == ZombieType::ZOMBIE_PAIL)
+               && (mBoard->mDanceMode || mBoard->mJacksonDanceMode)) {
         PlayZombieReanim("anim_dance", ReanimLoopType::REANIM_LOOP, theBlendTime, 0.0f);
     } else if (mZombiePhase == ZombiePhase::PHASE_POLEVAULTER_PRE_VAULT) { // 修复撑杆僵尸被蹦极空投落地后动画异常
         PlayZombieReanim("anim_run", ReanimLoopType::REANIM_LOOP, 0, 0.0f);
@@ -8332,7 +8334,7 @@ void Zombie::StartMindControlled_Origin() {
     }
 
     if (mZombieType == ZombieType::ZOMBIE_JACKSON && !mBoard->GetLiveZombieByType(ZombieType::ZOMBIE_JACKSON)) {
-        mBoard->SetDanceMode(false);
+        mBoard->SetJacksonDanceMode(false);
         msDeadFollowers.clear();
     }
 }

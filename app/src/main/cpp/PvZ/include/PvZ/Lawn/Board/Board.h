@@ -409,6 +409,7 @@ public:
     GameButton *mBoardStoreButton = nullptr;            // 新增成员
     ShovelRedirectWidget *mShovelWidget = nullptr;
     ReplayControlsWidget *mReplayControlsWidget = nullptr;
+    bool mJacksonDanceMode = false;
 
     Projectile *AddProjectile(int theX, int theY, int theRenderOrder, int theRow, ProjectileType theProjectileType);
     void SpawnTeleportEffect(float theX, float theY, int theRow);
@@ -601,6 +602,7 @@ public:
     void SetDanceMode(bool theEnableDance) {
         reinterpret_cast<void (*)(Board *, bool)>(Board_SetDanceModeAddr)(this, theEnableDance);
     }
+    void SetJacksonDanceMode(bool theEnableDance);
     bool ChooseSeedsOnCurrentLevel() {
         return reinterpret_cast<bool (*)(Board *)>(Board_ChooseSeedsOnCurrentLevelAddr)(this);
     }
@@ -850,6 +852,7 @@ inline bool clearAllZombies;
 inline bool hypnoAllZombies;
 inline bool freezeAllZombies;
 inline bool clearAllGraves;
+inline bool gCheatClearAllLadders;
 inline bool clearAllMowers;
 inline bool recoverAllMowers;
 inline bool startAllMowers;

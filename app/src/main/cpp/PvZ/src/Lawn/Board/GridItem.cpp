@@ -51,10 +51,10 @@ void GridItem::_constructor() {
 }
 
 void GridItem::GridItemDie() {
-    if (IsRemoteClientOrViewer())
-        return;
-
     if (mApp->mGameScene == SCENE_PLAYING) {
+        if (IsRemoteClientOrViewer()) {
+            return;
+        }
         if (IsRemoteServer()) {
             U16_Event event = {{EventType::EVENT_SERVER_BOARD_GRIDITEM_DIE}, uint16_t(mBoard->mGridItems.DataArrayGetID(this))};
             netplay::PutEvent(event);
@@ -334,7 +334,7 @@ void GridItem::Update() {
         UpdatePole();
     }
 
-    if (mGridItemType == GridItemType::GRIDITEM_GRAVESTONE || mGridItemType == GridItemType::GRIDITEM_MP_BURIAL_MOUND) {
+    if ((mGridItemType == GridItemType::GRIDITEM_GRAVESTONE || mGridItemType == GridItemType::GRIDITEM_MP_BURIAL_MOUND) && mApp->mGameScene == SCENE_PLAYING) {
         UpdateMPGraveStone();
         return;
     }
@@ -360,7 +360,7 @@ void GridItem::Update() {
 }
 
 void GridItem::UpdateMPGraveStone() {
-    if (!mApp->IsVSMode() || mApp->mGameScene != SCENE_PLAYING) {
+    if (!mApp->IsVSMode()) {
         return;
     }
 
