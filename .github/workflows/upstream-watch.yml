@@ -67,6 +67,9 @@ jobs:
           } > upstream-report.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Without this, gh picks the `upstream` remote added above and tries
+          # to open the issue in their repository, where we have no business.
+          GH_REPO: ${{ github.repository }}
 
       - name: Report
         run: |
@@ -99,3 +102,6 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Without this, gh picks the `upstream` remote added above and tries
+          # to open the issue in their repository, where we have no business.
+          GH_REPO: ${{ github.repository }}
