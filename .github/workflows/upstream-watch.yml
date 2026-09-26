@@ -39,8 +39,9 @@ jobs:
           echo "count=$count" >> "$GITHUB_OUTPUT"
           echo "Upstream is $count commit(s) ahead."
 
+          # The report goes to a file: it is multi-line Markdown, and putting
+          # that through a shell argument is how the first version broke.
           {
-            echo "body<<END_OF_BODY"
             if [ "$count" -gt 0 ]; then
               echo "[$UPSTREAM](https://github.com/$UPSTREAM) is **$count commit(s)** ahead of our \`main\`:"
               echo
@@ -52,10 +53,8 @@ jobs:
               echo '```'
             fi
 
-            latest=$(gh api "repos/$UPSTREAM/releases" \
-              --jq 'map(select(.draft | not)) | first
-                    | "- **\(.tag_name)**\(if .prerelease then " (pre-release)" else "" end) — published \(.published_at), [release notes](\(.html_url))"' \
-              2>/dev/null || true)
+            latest=$(gh api "repos/$UPSTREAM/releases" --jq 'map(select(.draft | not)) | first
+                    | "- **\(.tag_name)**\(if .prerelease then " (pre-release)" else "" end) — published \(.published_at), [release notes](\(.html_url))"' 2>/dev/null || true)
             if [ -n "$latest" ]; then
               echo
               echo "Their latest release:"
@@ -65,8 +64,7 @@ jobs:
 
             echo
             echo "_Checked $(date -u '+%Y-%m-%d %H:%M UTC'). This issue is rewritten on every check and closes itself once we have caught up._"
-            echo "END_OF_BODY"
-          } >> "$GITHUB_OUTPUT"
+          } > upstream-report.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -87,12 +85,12 @@ jobs:
             --color FBCA04 2>/dev/null || true
 
           if [ -n "$existing" ]; then
-            gh issue edit "$existing" --body "${{ steps.compare.outputs.body }}"
+            gh issue edit "$existing" --body-file upstream-report.md
             echo "Updated issue #$existing."
           else
             gh issue create --title "$ISSUE_TITLE" --label upstream \
               --assignee "${{ github.repository_owner }}" \
-              --body "${{ steps.compare.outputs.body }}"
+              --body-file upstream-report.md
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
