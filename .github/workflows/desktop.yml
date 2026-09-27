@@ -81,7 +81,9 @@ jobs:
   # assets, zipped so it runs by double-clicking. It carries ~170 MB of game
   # data, so it is built when a version is tagged rather than on every push.
   package:
-    if: startsWith(github.ref, 'refs/tags/')
+    # Tags produce the published bundles; a manual run produces the same
+    # thing as an artifact, which is how this gets tested without publishing.
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
 
     strategy:
@@ -159,7 +161,15 @@ jobs:
           7z a -tzip -mx=5 "$out.zip" "$out" > /dev/null
           ls -l "$out.zip"
 
+      - name: Upload the bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: PvZ-TV-PC-${{ matrix.language }}
+          path: PvZ-TV-PC-${{ matrix.language }}.zip
+          if-no-files-found: error
+
       - name: Attach it to the release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
           files: PvZ-TV-PC-${{ matrix.language }}.zip
