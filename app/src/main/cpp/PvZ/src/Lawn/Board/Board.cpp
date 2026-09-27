@@ -3598,7 +3598,8 @@ static void CheatPlaceLadder(Board *theBoard, int theCol, int theRow) {
 
     bool aGridGood[MAX_GRID_SIZE_X][MAX_GRID_SIZE_Y] = {};
     for (Plant *aPlant = nullptr; theBoard->IteratePlants(aPlant);) {
-        if ((aPlant->mSeedType == SeedType::SEED_WALLNUT || aPlant->mSeedType == SeedType::SEED_TALLNUT || aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
+        if ((!aIsAllCol && !aIsAllRow) // 单格放置放宽限制, 有植物就行
+            || (aPlant->mSeedType == SeedType::SEED_WALLNUT || aPlant->mSeedType == SeedType::SEED_TALLNUT || aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
             || (aPlant->IsSpiky() && theBoard->GetFlowerPotAt(aPlant->mPlantCol, aPlant->mRow) != nullptr) // 原版特性
         ) {
             if (IsValidGrid(aPlant->mPlantCol, aPlant->mRow)) {
