@@ -25,7 +25,7 @@ RUNNER_API void android_runner_queue_key(int action, int key_code);
 // NativeApp work queue and turned into a Java text dialog (runner_jni.cpp);
 // the dialog's result is queued here and handed to the guest on its own thread.
 RUNNER_API void android_runner_queue_text(const std::string &text, bool cancelled);
-void android_runner_inspect_pending_works(GuestCall &c, uint32_t native_app, uint32_t native_base);
+/* Declared in pvz_tv/platform_bridge.h, implemented in libegl_android.cpp. */
 void android_runner_show_text_dialog(int mode, const std::string &title, const std::string &hint,
                                      const std::string &initial);
 void android_runner_hide_text_dialog();

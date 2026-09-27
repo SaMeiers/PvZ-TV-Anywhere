@@ -16,6 +16,8 @@
 #include <pvz_tv/dependencies/vfs.h>
 #include <pvz_tv/dependencies/libc_internal.h>
 
+#include <pvz_tv/platform_bridge.h>
+
 #ifdef __ANDROID__
 #include "runner_core.h"
 #endif
@@ -387,12 +389,18 @@ void c_write(GuestCall &c) {
         // Stand-in for the Java UI thread: NativeApp::wakeup() just queued work
         // for "Java", so run it now (Runnable::run + notify) on this thread.
         static bool s_in_process_works = false;
+        if (s_in_process_works) {
+            /* The guest queued work from inside a work, so this wake finds us
+             * already busy and the new one is left for the next wake. If the
+             * queuing thread is waiting on it, that wake never comes. */
+            diag::report("[works] wake while already processing -- work deferred");
+        }
         if (!s_in_process_works) {
+            PVZTV_TRACE("[works] pipe wake -> processWorks");
             s_in_process_works = true;
-#ifdef __ANDROID__
-            // Turns the guest's "ask Java" works into real Android calls.
-            pvz_tv::android_runner_inspect_pending_works(c, g_native_app_addr, g_process_works_fn - 0x16b55);
-#endif
+            // Turns the guest's "ask Java" works into something the platform
+            // can actually answer.
+            pvz_tv::inspect_pending_works(c, g_native_app_addr, g_process_works_fn - 0x16b55);
             uint32_t args[1] = { g_native_app_addr };
             c.call_guest_fn(c.env, g_process_works_fn, args, 1);
             s_in_process_works = false;

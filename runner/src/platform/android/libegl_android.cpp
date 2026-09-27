@@ -279,7 +279,7 @@ void android_runner_queue_text(const std::string &text, bool cancelled) {
 // Runs on the guest thread that just queued work for the "Java" side, before
 // processWorks() executes it. The fake JNIEnv turns the work itself into a
 // no-op, so this is where the request actually reaches Android.
-void android_runner_inspect_pending_works(GuestCall &c, uint32_t native_app, uint32_t native_base) {
+void inspect_pending_works(GuestCall &c, uint32_t native_app, uint32_t native_base) {
     uint32_t head = native_app + 0xf8; // std::list<Runnable*>
     uint32_t node = c.read32(head);
     for (int guard = 0; node && node != head && guard < 64; ++guard, node = c.read32(node)) {
