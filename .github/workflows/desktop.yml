@@ -114,10 +114,12 @@ jobs:
           cmake -S desktop -B build/desktop -DCMAKE_BUILD_TYPE=Release -DPython_EXECUTABLE=${{ steps.python.outputs.python-path }}
           cmake --build build/desktop --config Release --target pvztv_player --parallel
 
+      # 21, because that is what gradle-daemon-jvm.properties asks the daemon
+      # to run on; on Windows there is no toolchain URL to fetch it from.
       - name: Set up JDK
         uses: actions/setup-java@v6
         with:
-          java-version: 17
+          java-version: 21
           distribution: temurin
 
       # libHomura.so is the mod itself and is built from source, so it has to
