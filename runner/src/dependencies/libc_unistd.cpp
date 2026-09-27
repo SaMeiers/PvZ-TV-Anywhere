@@ -372,21 +372,33 @@ void c_write(GuestCall &c) {
             return;
         }
     }
-    int fd = c.fd(token);
-    int put = -1;
-    if (fd >= 0 && c.in_bounds(src, count)) {
+    /* The wake pipe never gets read. NativeApp::wakeup() writes a byte to tell
+     * the Java UI thread it has work; there is no such thread here, the work
+     * runs below instead, and nothing ever drains the other end. The bytes pile
+     * up until the pipe is full -- 4 KB on Windows -- and then this write
+     * blocks for good, with the game frozen mid-frame while its audio thread
+     * plays on. The byte has no reader, so it is not written at all. */
+    if (token == g_pipe_write_token) {
+        c.set_result(count);
+    } else {
+        int fd = c.fd(token);
+        int put = -1;
+        if (fd >= 0 && c.in_bounds(src, count)) {
 #if defined(_WIN32)
-        put = _write(fd, &c.img->mem[src], count);
+            put = _write(fd, &c.img->mem[src], count);
 #else
-        put = (int)write(fd, &c.img->mem[src], count);
+            put = (int)write(fd, &c.img->mem[src], count);
 #endif
+        }
+        c.set_result((std::uint32_t)put);
     }
-    c.set_result((std::uint32_t)put);
 
     if (token == g_pipe_write_token && g_process_works_fn && g_native_app_addr && c.call_guest_fn) {
-        // Stand-in for the Java UI thread: NativeApp::wakeup() just queued work
-        // for "Java", so run it now (Runnable::run + notify) on this thread.
-        static bool s_in_process_works = false;
+        /* Stand-in for the Java UI thread: NativeApp::wakeup() just queued work
+         * for "Java", so run it now (Runnable::run + notify) on this thread.
+         * The guard is per thread: one guest thread already running the queue
+         * is no reason for another not to. */
+        static thread_local bool s_in_process_works = false;
         if (!s_in_process_works) {
             s_in_process_works = true;
 #ifdef __ANDROID__

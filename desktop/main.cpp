@@ -647,6 +647,42 @@ void setup_transmension_bridge(pvz2_elf_image_t *img, pvz_tv::GuestRuntime *rt) 
 
     *(uint32_t*)&img->mem[nativeApp + 0xa8] = bridgeApp; // AppDelegate pointer
 
+    // Fake JavaVM (+0x94) / JNIEnv (+0x98). Works posted to the "Java" side
+    // (showSoftInput, setText, ...) call through these; with NULL the Runnable
+    // crashes before notify() and waitWork() blocks the game thread forever --
+    // which is what froze the player the moment the game asked for a keyboard.
+    {
+        constexpr uint32_t kJniFnCount = 512;  // JNIEnv has ~233; the slack is free
+        uint32_t code = rt->heap.alloc(32);
+        // ret0: movs r0,#0; movs r1,#0; bx lr
+        const uint16_t ret0[3] = { 0x2000, 0x2100, 0x4770 };
+        memcpy(&img->mem[code], ret0, sizeof(ret0));
+        // store_env (code+8): ldr r2,[pc,#4]; str r2,[r1]; movs r0,#0; bx lr; .word env
+        const uint16_t store_env[4] = { 0x4A01, 0x600A, 0x2000, 0x4770 };
+        memcpy(&img->mem[code + 8], store_env, sizeof(store_env));
+
+        uint32_t envFns = rt->heap.alloc(kJniFnCount * 4);
+        for (uint32_t i = 0; i < kJniFnCount; ++i)
+            *(uint32_t*)&img->mem[envFns + i * 4] = code | 1;
+        uint32_t env = rt->heap.alloc(4);
+        *(uint32_t*)&img->mem[env] = envFns;
+        *(uint32_t*)&img->mem[code + 16] = env;
+
+        // JNIInvokeInterface: 3 reserved, DestroyJavaVM, AttachCurrentThread,
+        // DetachCurrentThread, GetEnv, AttachCurrentThreadAsDaemon
+        uint32_t vmFns = rt->heap.alloc(8 * 4);
+        for (uint32_t i = 0; i < 8; ++i)
+            *(uint32_t*)&img->mem[vmFns + i * 4] = code | 1;
+        *(uint32_t*)&img->mem[vmFns + 4 * 4] = (code + 8) | 1;
+        *(uint32_t*)&img->mem[vmFns + 6 * 4] = (code + 8) | 1;
+        *(uint32_t*)&img->mem[vmFns + 7 * 4] = (code + 8) | 1;
+        uint32_t vm = rt->heap.alloc(4);
+        *(uint32_t*)&img->mem[vm] = vmFns;
+
+        *(uint32_t*)&img->mem[nativeApp + 0x94] = vm;
+        *(uint32_t*)&img->mem[nativeApp + 0x98] = env;
+    }
+
     // BridgeApp
     uint32_t vtable = nativeBase + 0x4e8f8 + 8;
     *(uint32_t*)&img->mem[bridgeApp + 0x00] = vtable;
