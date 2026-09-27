@@ -5,6 +5,7 @@
 #include <pvz_tv/config.h>
 
 #include <cctype>
+#include <cstring>
 #include <fcntl.h>
 #include <string>
 #include <filesystem>
@@ -175,6 +176,18 @@ std::string translate(GuestRuntime *rt, std::string p) {
     return p;
 }
 
+/* The directories the game writes into, where the index cannot be trusted to
+ * be complete because the contents appear while it runs. */
+static bool is_writable_area(const std::string &key) {
+    for (const char *dir : {"data", "userdata", "pseudo_fs"}) {
+        const std::size_t len = std::strlen(dir);
+        if (key.compare(0, len, dir) == 0 && (key.size() == len || key[len] == '/')) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool exists(GuestRuntime *rt, const std::string &guest_path, std::string &out_host) {
     ensure_vfs_indexed();
     out_host = translate(rt, guest_path);
@@ -191,14 +204,21 @@ bool exists(GuestRuntime *rt, const std::string &guest_path, std::string &out_ho
         return true;
     }
 
-    /* The index is a snapshot of the assets taken when the guest first asked
-     * for a file, so nothing the game creates while it runs is in it: its
-     * profile under data/, a save, a file it downloads. Answering "no" for
-     * those made the game give up on its own first launch -- it created the
-     * profile, could not see it, and quit -- so the filesystem gets the last
-     * word. */
-    std::error_code ec;
-    return std::filesystem::exists(out_host, ec);
+    /* The index is a snapshot taken at startup, so nothing the game creates
+     * while it runs can be in it: its profile under data/, a save. Those
+     * directories have to be answered from the filesystem -- not doing so made
+     * the game give up on its own first launch, having created a profile it
+     * then could not see.
+     *
+     * Everywhere else the index is the authority. The assets do not change
+     * while the game runs, and loading probes thousands of paths that simply
+     * are not there (one per extension it is willing to accept); turning each
+     * of those misses into a stat() is enough to make loading crawl. */
+    if (is_writable_area(key) || is_writable_area(g_key)) {
+        std::error_code ec;
+        return std::filesystem::exists(out_host, ec);
+    }
+    return false;
 }
 
 void ensure_writable_dirs() {
