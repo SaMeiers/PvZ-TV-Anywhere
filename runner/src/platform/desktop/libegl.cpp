@@ -208,62 +208,19 @@ constexpr uint32_t kTextDialogWorkVtbl = 0x4de68;      // showTextInputDialog: +
 constexpr uint32_t kHideTextDialogWorkVtbl = 0x4dd00;  // hideTextInputDialog
 constexpr uint32_t kBridgeAppSingleton = 0x4f014;
 
-static bool s_typing = false;
 static std::string s_typed;
 static bool s_text_ready = false;
 static bool s_text_cancelled = false;
-
-/* Collects a line of typing right here, on the thread that asked for the
- * keyboard. It has to be done now: that thread is about to wait for the text,
- * and on the desktop it is also the thread that pumps SDL, so if it waits
- * first nothing can ever arrive. The window keeps being presented so it stays
- * responsive while the player types. */
-static void collect_text_modally(GuestCall &c) {
-    SDL_StartTextInput();
-    s_typing = true;
-    bool done = false;
-    bool cancelled = false;
-
-    while (!done) {
-        SDL_Event ev;
-        while (SDL_PollEvent(&ev)) {
-            if (ev.type == SDL_QUIT) {
-                c.halt("user quit");
-                done = cancelled = true;
-                break;
-            }
-            if (ev.type == SDL_TEXTINPUT) {
-                s_typed += ev.text.text;
-            } else if (ev.type == SDL_KEYDOWN) {
-                const SDL_Keycode key = ev.key.keysym.sym;
-                if (key == SDLK_RETURN || key == SDLK_KP_ENTER) {
-                    done = true;
-                } else if (key == SDLK_ESCAPE) {
-                    s_typed.clear();
-                    done = cancelled = true;
-                } else if (key == SDLK_BACKSPACE && !s_typed.empty()) {
-                    s_typed.pop_back();
-                }
-            }
-        }
-        if (!done) {
-            if (g_sdl_window) SDL_GL_SwapWindow(g_sdl_window);
-            SDL_Delay(16);
-        }
-    }
-
-    SDL_StopTextInput();
-    s_typing = false;
-    s_text_ready = true;
-    s_text_cancelled = cancelled;
-    PVZTV_TRACE("[ime] collected \"%s\"%s", s_typed.c_str(), cancelled ? " (cancelled)" : "");
-}
+/* One answer per request. The game asks again every frame until it gets one,
+ * so without this the queue would grow a reply per frame. */
+static bool s_dialog_open = false;
 
 // Hands the typed text to the game: store it where AGViewGetTextInput() reads
 // it, then raise AGEvent type 6, exactly as the Android backend does.
 static void deliver_typed_text(GuestCall &c, uint32_t handleEvents, uint32_t appDriver, uint32_t event_buf) {
     if (!s_text_ready) return;
     s_text_ready = false;
+    s_dialog_open = false;
 
     uint32_t native_base = 0;
     for (uint32_t i = 0; i < c.img->module_count; ++i) {
@@ -287,7 +244,7 @@ static void deliver_typed_text(GuestCall &c, uint32_t handleEvents, uint32_t app
 
     c.write8(dispatcher + 0x38, s_text_cancelled ? 0 : 1);
     c.write32(dispatcher + 0x3c, rep + 12);
-    PVZTV_TRACE("[ime] delivering \"%s\"%s", s_typed.c_str(), s_text_cancelled ? " (cancelled)" : "");
+    diag::report("[ime] delivering \"%s\"%s", s_typed.c_str(), s_text_cancelled ? " (cancelled)" : "");
 
     for (uint32_t off = 0; off < 0x30; off += 4) c.write32(event_buf + off, 0);
     c.write32(event_buf + 0x00, 6); // AGEvent type 6 -> AndroidAppDriver::HandleInputEvents
@@ -295,6 +252,83 @@ static void deliver_typed_text(GuestCall &c, uint32_t handleEvents, uint32_t app
     c.call(handleEvents, args, 2);
     c.write8(dispatcher + 0x38, 0);
     s_typed.clear();
+}
+
+/* Asks the player for a line of text, right here on the thread that requested
+ * the keyboard.
+ *
+ * On a phone this is a dialog over a game that keeps running. Here the thread
+ * that asks is also the thread that draws, so the game is stopped for as long
+ * as this takes and cannot show anything: the typing goes in the window title
+ * instead, which is the one piece of the window still ours to write on.
+ * Enter accepts, Escape cancels. */
+static bool prompt_for_text(GuestCall &c, const std::string &initial, std::string &out) {
+    out = initial;
+
+    std::string previous_title;
+    if (g_sdl_window) {
+        const char *title = SDL_GetWindowTitle(g_sdl_window);
+        previous_title = title ? title : "";
+    }
+    auto show = [&]() {
+        if (!g_sdl_window) return;
+        const std::string prompt = "Type a name and press Enter  [ " + out + "_ ]";
+        SDL_SetWindowTitle(g_sdl_window, prompt.c_str());
+    };
+    show();
+
+    SDL_StartTextInput();
+    bool accepted = false;
+
+    /* Typing arrives as SDL_TEXTINPUT, but with the IME switched on SDL does
+     * not deliver the key presses themselves, so Enter and friends are read
+     * from the keyboard state instead -- on the edge, or one press would count
+     * every frame. */
+    bool was_down = true;  // ignore a key still held from the click that got here
+    for (bool done = false; !done;) {
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_QUIT) {
+                c.halt("user quit");
+                done = true;
+                break;
+            }
+            if (ev.type == SDL_TEXTINPUT) {
+                out += ev.text.text;
+                show();
+            }
+        }
+        if (done) break;
+
+        const Uint8 *keys = SDL_GetKeyboardState(nullptr);
+        const bool enter = keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_KP_ENTER];
+        const bool escape = keys[SDL_SCANCODE_ESCAPE];
+        const bool backspace = keys[SDL_SCANCODE_BACKSPACE];
+        const bool any = enter || escape || backspace;
+
+        if (any && !was_down) {
+            if (enter) {
+                accepted = !out.empty();
+                done = true;
+            } else if (escape) {
+                done = true;
+            } else if (!out.empty()) {
+                out.pop_back();
+                show();
+            }
+        }
+        was_down = any;
+
+        if (!done) {
+            // Keep presenting the last frame so the window stays alive.
+            if (g_sdl_window) SDL_GL_SwapWindow(g_sdl_window);
+            SDL_Delay(16);
+        }
+    }
+
+    SDL_StopTextInput();
+    if (g_sdl_window) SDL_SetWindowTitle(g_sdl_window, previous_title.c_str());
+    return accepted;
 }
 
 void egl_swap_buffers(GuestCall &c) {
@@ -470,6 +504,37 @@ void egl_get_proc_address(GuestCall &c) {
  * before processWorks() executes it. A request for the keyboard is answered
  * by collecting what gets typed here; everything else runs as the no-op it
  * already was. */
+static void answer_with_typed_text(GuestCall &c, const std::string &initial) {
+    if (s_dialog_open) return;   // one prompt per request
+    s_dialog_open = true;
+
+    std::string typed;
+    const bool accepted = prompt_for_text(c, initial, typed);
+
+    static uint32_t s_ime_event_buf = 0;
+    if (!s_ime_event_buf) s_ime_event_buf = c.rt->heap.alloc(128);
+
+    uint32_t game_main_base = 0;
+    for (uint32_t i = 0; i < c.img->module_count; ++i) {
+        if (std::strstr(c.img->modules[i].name, "libGameMain.so")) {
+            game_main_base = c.img->modules[i].base;
+            break;
+        }
+    }
+    const uint32_t lawn_app = game_main_base ? c.read32(game_main_base + 0x00715d50) : 0;
+    const uint32_t app_driver = lawn_app ? c.read32(lawn_app + 0x2ec) : 0;
+    if (!app_driver || !s_ime_event_buf) {
+        s_dialog_open = false;
+        return;
+    }
+
+    s_typed = typed;
+    s_text_cancelled = !accepted;
+    s_text_ready = true;
+    deliver_typed_text(c, game_main_base + 0x003f9589, app_driver, s_ime_event_buf);
+    s_dialog_open = false;
+}
+
 void inspect_pending_works(GuestCall &c, uint32_t native_app, uint32_t native_base) {
     const uint32_t head = native_app + 0xf8; // std::list<Runnable*>
     uint32_t node = c.read32(head);
@@ -480,18 +545,14 @@ void inspect_pending_works(GuestCall &c, uint32_t native_app, uint32_t native_ba
 
         if (vtbl == kSoftInputWorkVtbl) {
             const bool show = c.read8(work + 0xc) != 0;
-            PVZTV_TRACE("[ime] guest %s the keyboard", show ? "shows" : "hides");
-            if (show && !s_typing) {
-                s_typed.clear();
-                collect_text_modally(c);
+            if (show) {
+                diag::report("[ime] the game wants text typed -- see the window title");
+                answer_with_typed_text(c, "");
             }
         } else if (vtbl == kTextDialogWorkVtbl) {
             const std::string initial = c.cstr(c.read32(work + 0x18));
-            PVZTV_TRACE("[ime] guest opens a text field (initial \"%s\")", initial.c_str());
-            if (!s_typing) {
-                s_typed = initial;
-                collect_text_modally(c);
-            }
+            diag::report("[ime] guest opens a text field (initial \"%s\")", initial.c_str());
+            answer_with_typed_text(c, initial);
         }
     }
 }
