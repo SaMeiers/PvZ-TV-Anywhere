@@ -4,6 +4,8 @@ on:
   push:
     paths-ignore:
       - '**.md'
+    tags:
+      - '*'
 
   pull_request:
     paths-ignore:
@@ -71,3 +73,90 @@ jobs:
             build/desktop/pvztv_player*
             build/desktop/Release/pvztv_player*
           if-no-files-found: error
+
+  # The playable bundle: the player, the game's own 32-bit libraries and the
+  # assets, zipped so it runs by double-clicking. It carries ~170 MB of game
+  # data, so it is built when a version is tagged rather than on every push.
+  package:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ zh, en ]
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        id: python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install glad dependencies
+        run: python -m pip install --disable-pip-version-check jinja2
+
+      - name: Build the player
+        run: |
+          cmake -S desktop -B build/desktop -DCMAKE_BUILD_TYPE=Release -DPython_EXECUTABLE=${{ steps.python.outputs.python-path }}
+          cmake --build build/desktop --config Release --target pvztv_player --parallel
+
+      - name: Set up JDK
+        uses: actions/setup-java@v6
+        with:
+          java-version: 17
+          distribution: temurin
+
+      # libHomura.so is the mod itself and is built from source, so it has to
+      # come from a compile rather than from the repository like the other
+      # guest libraries.
+      - name: Build the mod's guest library
+        shell: bash
+        run: ./gradlew :app:externalNativeBuildV115Release
+
+      - name: Check out the assets
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ secrets.ASSETS_REPO }}
+          path: assets-src
+          token: ${{ secrets.ASSETS_TOKEN }}
+
+      - name: Assemble the bundle
+        shell: bash
+        run: |
+          out="PvZ-TV-PC-${{ matrix.language }}"
+          mkdir -p "$out"
+
+          cp build/desktop/Release/pvztv_player.exe "$out/"
+          cp app/src/v115/jniLibs/armeabi-v7a/*.so "$out/"
+
+          homura=$(find app/build -name libHomura.so -path "*armeabi-v7a*" | head -1)
+          if [ -z "$homura" ]; then
+            echo "libHomura.so was not built; the bundle would have no touch UI." >&2
+            exit 1
+          fi
+          cp "$homura" "$out/"
+
+          mkdir -p "$out/assets"
+          cp -r assets-src/assets/. "$out/assets/"
+          if [ "${{ matrix.language }}" = "en" ]; then
+            cp -r assets-src/overrides/english/. "$out/assets/"
+          fi
+
+          cp docs/README.md "$out/README.md"
+          echo "$(find "$out" -type f | wc -l) files, $(du -sm "$out" | cut -f1) MB"
+          7z a -tzip -mx=5 "$out.zip" "$out" > /dev/null
+          ls -l "$out.zip"
+
+      - name: Attach it to the release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: PvZ-TV-PC-${{ matrix.language }}.zip

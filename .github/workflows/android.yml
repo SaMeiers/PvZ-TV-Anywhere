@@ -18,11 +18,16 @@ jobs:
       matrix:
         version: [ w111, v115 ]
         build_type: [ release ]
+        # Chinese is the game as it ships. English swaps the bitmap fonts and
+        # the two string files; everything else is the same data, so the
+        # assets repository stores it once (see its README).
+        language: [ zh, en ]
         # The diagnostic build: traces every guest call and keeps the hang
         # watchdog running. Installs next to the normal app (id suffix .debug).
         include:
           - version: v115
             build_type: relWithDebInfo
+            language: en
 
     steps:
       - name: Checkout
@@ -35,13 +40,28 @@ jobs:
       - name: Check out the dynarmic submodule
         run: git submodule update --init --recursive third_party/dynarmic
 
-      - name: Checkout assets
+      - name: Check out the assets
         uses: actions/checkout@v7
         with:
           repository: ${{ secrets.ASSETS_REPO }}
-          path: app/src/main/assets
+          path: assets-src
           token: ${{ secrets.ASSETS_TOKEN }}
         continue-on-error: true
+
+      # Without those secrets nothing is checked out and the build simply comes
+      # out with no game data, which is what a fork gets.
+      - name: Put the assets in place
+        run: |
+          if [ ! -d assets-src/assets ]; then
+            echo "No assets available; building without game data."
+            exit 0
+          fi
+          mkdir -p app/src/main/assets
+          cp -r assets-src/assets/. app/src/main/assets/
+          if [ "${{ matrix.language }}" = "en" ]; then
+            cp -r assets-src/overrides/english/. app/src/main/assets/
+          fi
+          echo "$(find app/src/main/assets -type f | wc -l) asset files in place (${{ matrix.language }})"
 
       - name: Set up JDK
         uses: actions/setup-java@v6
@@ -80,12 +100,17 @@ jobs:
           build_type="${{ matrix.build_type }}"
           chmod +x gradlew
           ./gradlew assemble${version^}${build_type^}
-          echo "path=app/build/outputs/apk/$version/$build_type/*.apk" >> "$GITHUB_OUTPUT"
+          # The language goes in the file name so the builds do not collide.
+          out="app/build/outputs/apk/$version/$build_type"
+          for apk in "$out"/*.apk; do
+            mv "$apk" "${apk%.apk}-${{ matrix.language }}.apk"
+          done
+          echo "path=$out/*.apk" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: PvZ-TV-${{ matrix.version }}-${{ matrix.build_type }}
+          name: PvZ-TV-${{ matrix.version }}-${{ matrix.build_type }}-${{ matrix.language }}
           path: ${{ steps.build.outputs.path }}
 
   release:
@@ -113,10 +138,13 @@ jobs:
           echo "commits_count=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
           echo "commit_msg=$(git log --pretty=format:'%s' -1)" >> "$GITHUB_OUTPUT"
 
-      - name: Download artifact
+      # Both languages of the v115 release build; the diagnostic and w111
+      # ones stay as CI artifacts.
+      - name: Download the APKs
         uses: actions/download-artifact@v8
         with:
-          name: PvZ-TV-v115-release
+          pattern: PvZ-TV-v115-release-*
+          merge-multiple: true
           path: artifact
 
       - name: Publish pre-release
