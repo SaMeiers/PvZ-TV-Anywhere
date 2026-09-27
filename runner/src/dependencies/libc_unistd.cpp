@@ -16,8 +16,6 @@
 #include <pvz_tv/dependencies/vfs.h>
 #include <pvz_tv/dependencies/libc_internal.h>
 
-#include <pvz_tv/platform_bridge.h>
-
 #ifdef __ANDROID__
 #include "runner_core.h"
 #endif
@@ -386,27 +384,18 @@ void c_write(GuestCall &c) {
     c.set_result((std::uint32_t)put);
 
     if (token == g_pipe_write_token && g_process_works_fn && g_native_app_addr && c.call_guest_fn) {
-        /* Stand-in for the Java UI thread: NativeApp::wakeup() just queued
-         * work for "Java", so run it now (Runnable::run + notify) on this
-         * thread.
-         *
-         * Looking at what was queued happens on every wake, even when this is
-         * a wake from inside a work -- pressing the start button asks for the
-         * keyboard that way, and the thread that asked then waits for an
-         * answer only the platform can give. Running the queue again from in
-         * there, on the other hand, just feeds itself, so that part keeps its
-         * guard. */
-        pvz_tv::inspect_pending_works(c, g_native_app_addr, g_process_works_fn - 0x16b55);
-
-        static thread_local bool s_in_process_works = false;
+        // Stand-in for the Java UI thread: NativeApp::wakeup() just queued work
+        // for "Java", so run it now (Runnable::run + notify) on this thread.
+        static bool s_in_process_works = false;
         if (!s_in_process_works) {
-            PVZTV_TRACE("[works] pipe wake -> processWorks");
             s_in_process_works = true;
+#ifdef __ANDROID__
+            // Turns the guest's "ask Java" works into real Android calls.
+            pvz_tv::android_runner_inspect_pending_works(c, g_native_app_addr, g_process_works_fn - 0x16b55);
+#endif
             uint32_t args[1] = { g_native_app_addr };
             c.call_guest_fn(c.env, g_process_works_fn, args, 1);
             s_in_process_works = false;
-        } else {
-            PVZTV_TRACE("[works] wake from inside a work -- queue left for the outer run");
         }
     }
 }
