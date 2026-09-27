@@ -57,6 +57,24 @@ guest queues work for "Java" and writes to its wake-up pipe, the runner runs
 that work right there, and turns the requests it recognises (showing the
 keyboard, for instance) into real Android calls.
 
+**There are two copies of that bridge** -- one in `runner_core.cpp` for the app,
+one in `desktop/main.cpp` for the player -- and they have to say the same thing.
+A field missing from one of them does not fail where it is missing; it fails
+much later, somewhere that looks unrelated. The one that cost the most time so
+far: the stub `JavaVM` and `JNIEnv` at `NativeApp+0x94/+0x98`. Work posted to
+"Java" calls through them, so with a null pointer the Runnable dies before it
+can signal, and `NativeApp::showSoftInput()` -- which posts its Runnable and
+then waits for it -- leaves the game thread waiting forever. What you see is a
+frozen picture with the music still playing, the first time you press start on
+a profile that has no player in it yet. The stub function table must also be
+larger than `JNIEnv` itself; the game reached past 240 entries and jumped into
+whatever followed.
+
+Nothing reads the other end of the wake-up pipe either, since the work runs
+inline instead of on a Java thread, so the runner does not write to it: the
+bytes would pile up until the pipe was full and the next write blocked for
+good.
+
 ## Patching the guest
 
 A few fixes are byte patches applied to the loaded image at startup. Before

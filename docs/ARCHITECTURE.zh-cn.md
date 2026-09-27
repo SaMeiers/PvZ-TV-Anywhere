@@ -56,6 +56,21 @@ runner 在 `setup_transmension_bridge()` 中自行构造它们, 并代替 Java U
 补丁若落在 hook 的跳转指令上就会把它破坏. `HookInit.cpp` 与 `Symbols.cpp`
 列出了模组 hook 的内容, 而 `runner_core.cpp` 会在模组已加载时跳过自己的触控补丁.
 
+## Transmension 桥接的两份实现
+
+`NativeApp`/`BridgeApp` 由 runner 自己构建, 但有**两份**代码: 应用侧在
+`runner_core.cpp`, 播放器侧在 `desktop/main.cpp`. 两者必须保持一致 --
+某一份缺少的字段不会当场出错, 而是在看似无关的地方很晚才发作.
+
+目前代价最大的一次: `NativeApp+0x94/+0x98` 处的 `JavaVM` 与 `JNIEnv` 桩.
+投递给 "Java" 的 work 会经由它们调用, 指针为空时 Runnable 在发出通知前就崩溃,
+而 `NativeApp::showSoftInput()` 正是先投递 Runnable 再等待它, 于是游戏线程
+永远等下去: 画面卡住, 音乐照常播放 -- 在尚无存档的档案上第一次按下开始时出现.
+桩函数表还必须大于 `JNIEnv` 本身; 240 项时游戏会越界读取并跳进后面的内存.
+
+唤醒管道的另一端也没有读者 (work 是就地执行的, 没有 Java 线程), 因此 runner
+不再向其写入: 否则字节会一直堆积, 管道写满后下一次写入就会永久阻塞.
+
 ## 调试
 
 一切都有两种构建. **普通构建**只报告出错的东西 -- guest 断言, 被拒绝的分配,
