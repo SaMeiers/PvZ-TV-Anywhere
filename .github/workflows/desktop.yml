@@ -11,6 +11,9 @@ on:
     paths-ignore:
       - '**.md'
 
+  # So a build can be kicked off by hand from the Actions tab.
+  workflow_dispatch:
+
 jobs:
   build:
     strategy:
