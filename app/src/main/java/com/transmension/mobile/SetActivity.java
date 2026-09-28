@@ -646,9 +646,12 @@ public class SetActivity extends Activity {
             try {
                 InputStream inputStream = getAssets().open("userdata.zip");
                 if (inputStream != null) {
-                    File userdata_import = new File(getUserDataFile(this), "userdata");
+                    // Bajo el runner de 64 bits las partidas viven en
+                    // data/userdata; escribir en userdata/ no fallaba,
+                    // simplemente no lo veia nadie.
+                    File userdata_import = GuestLibsExtractor.getSaveDir(getUserDataFile(this));
 
-                    if (!userdata_import.exists()) userdata_import.mkdir();
+                    if (!userdata_import.exists()) userdata_import.mkdirs();
                     ZipInputStream zipInputStream = new ZipInputStream(inputStream);
                     // 读取ZipEntry对象
                     ZipEntry zipEntry = zipInputStream.getNextEntry();

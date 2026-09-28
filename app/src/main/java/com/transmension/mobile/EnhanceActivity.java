@@ -716,7 +716,9 @@ public class EnhanceActivity extends MainActivity {
         isFileObserverLaunched = sharedPreferences.getBoolean("autoBackUp", true);
         if (isFileObserverLaunched) {
             checkAndDeleteOldBackups();
-            File userdata = new File(getUserDataFile(), "userdata");
+            // La misma carpeta que usa el juego: vigilar userdata/ en un
+            // dispositivo de 64 bits no respaldaba nada.
+            File userdata = GuestLibsExtractor.getSaveDir(getUserDataFile());
             fileObserver = new FileObserver(userdata.getAbsolutePath(), FileObserver.CLOSE_WRITE) {
                 @Override
                 public void onEvent(int i, String s) {

@@ -18,6 +18,19 @@ public class GuestLibsExtractor {
     private static final String PREF_NAME = "guest_libs_prefs";
     private static final String KEY_APK_TIMESTAMP = "apk_timestamp";
 
+    /**
+     * Carpeta donde el juego guarda las partidas.
+     *
+     * En 32 bits el juego escribe en userdata/, pero bajo el runner de 64 bits
+     * corre con data/ como directorio de trabajo y sus partidas acaban en
+     * data/userdata/. Quien toque los saves tiene que preguntar aqui: importar
+     * o respaldar la carpeta equivocada no da error, simplemente no hace nada.
+     */
+    public static File getSaveDir(File dataDir) {
+        return is64Bit() ? new File(new File(dataDir, "data"), "userdata")
+                         : new File(dataDir, "userdata");
+    }
+
     public static boolean is64Bit() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             return Process.is64Bit();
