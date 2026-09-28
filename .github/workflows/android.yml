@@ -154,12 +154,15 @@ jobs:
 
       # Upstream publishes stable builds to a separate PvZ-TV-builds repository;
       # here they live in this one, so no extra token is needed.
+      # Not the latest one, though: that belongs to the tagged version, which
+      # is what the download page serves. These builds carry only the APKs, so
+      # letting one win the race would leave the page with no PC bundles.
       - name: Publish release
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v3
         with:
           prerelease: false
-          make_latest: true
+          make_latest: false
           tag_name: ${{ steps.commit_info.outputs.commits_date }}-${{ steps.commit_info.outputs.commits_count }}
           body: ${{ steps.commit_info.outputs.commit_msg }} (${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
           files: artifact/*.apk
