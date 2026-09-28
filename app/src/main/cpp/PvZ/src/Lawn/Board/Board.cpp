@@ -3537,6 +3537,10 @@ static void CheatPlaceZombie(Board *theBoard, int theCol, int theRow, ZombieType
     }
 }
 
+[[nodiscard]] static bool IsValidGrid(int theGridX, int theGridY) {
+    return 0 <= theGridX && theGridX < MAX_GRID_SIZE_X && 0 <= theGridY && theGridY < MAX_GRID_SIZE_Y;
+}
+
 static void CheatPlaceGraveStone(Board *theBoard, int theCol, int theRow) {
     const int aColsCount = 9;
     const int aRowsCount = theBoard->StageHas6Rows() ? 6 : 5;
@@ -3546,8 +3550,8 @@ static void CheatPlaceGraveStone(Board *theBoard, int theCol, int theRow) {
 
     bool aGridBad[MAX_GRID_SIZE_X][MAX_GRID_SIZE_Y] = {};
     for (GridItem *aGridItem = nullptr; theBoard->IterateGridItems(aGridItem);) {
-        if (aGridItem->mGridItemType == GridItemType::GRIDITEM_GRAVESTONE && (aIsAllCol || aGridItem->mGridX == theCol) && (aIsAllRow || aGridItem->mGridY == theRow)) {
-            if (0 <= aGridItem->mGridX && aGridItem->mGridX < MAX_GRID_SIZE_X && 0 <= aGridItem->mGridY && aGridItem->mGridY < MAX_GRID_SIZE_Y) {
+        if (aGridItem->mGridItemType == GridItemType::GRIDITEM_GRAVESTONE) {
+            if (IsValidGrid(aGridItem->mGridX, aGridItem->mGridY)) {
                 aGridBad[aGridItem->mGridX][aGridItem->mGridY] = true;
             }
         }
@@ -3594,17 +3598,18 @@ static void CheatPlaceLadder(Board *theBoard, int theCol, int theRow) {
 
     bool aGridGood[MAX_GRID_SIZE_X][MAX_GRID_SIZE_Y] = {};
     for (Plant *aPlant = nullptr; theBoard->IteratePlants(aPlant);) {
-        if ((aPlant->mSeedType == SeedType::SEED_WALLNUT || aPlant->mSeedType == SeedType::SEED_TALLNUT || aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
+        if ((!aIsAllCol && !aIsAllRow) // 单格放置放宽限制, 有植物就行
+            || (aPlant->mSeedType == SeedType::SEED_WALLNUT || aPlant->mSeedType == SeedType::SEED_TALLNUT || aPlant->mSeedType == SeedType::SEED_PUMPKINSHELL)
             || (aPlant->IsSpiky() && theBoard->GetFlowerPotAt(aPlant->mPlantCol, aPlant->mRow) != nullptr) // 原版特性
         ) {
-            if (0 <= aPlant->mPlantCol && aPlant->mPlantCol < MAX_GRID_SIZE_X && 0 <= aPlant->mRow && aPlant->mRow < MAX_GRID_SIZE_Y) {
+            if (IsValidGrid(aPlant->mPlantCol, aPlant->mRow)) {
                 aGridGood[aPlant->mPlantCol][aPlant->mRow] = true;
             }
         }
     }
     for (GridItem *aGridItem = nullptr; theBoard->IterateGridItems(aGridItem);) {
-        if (aGridItem->mGridItemType == GridItemType::GRIDITEM_LADDER && (aIsAllCol || aGridItem->mGridX == theCol) && (aIsAllRow || aGridItem->mGridY == theRow)) {
-            if (0 <= aGridItem->mGridX && aGridItem->mGridX < MAX_GRID_SIZE_X && 0 <= aGridItem->mGridY && aGridItem->mGridY < MAX_GRID_SIZE_Y) {
+        if (aGridItem->mGridItemType == GridItemType::GRIDITEM_LADDER) {
+            if (IsValidGrid(aGridItem->mGridX, aGridItem->mGridY)) {
                 aGridGood[aGridItem->mGridX][aGridItem->mGridY] = false;
             }
         }
@@ -3828,24 +3833,24 @@ void Board::Update() {
         clearAllZombies = false;
     }
 
+    auto RemoveAllGridItemsOfType = [this](GridItemType theType) {
+        for (GridItem *aGridItem = nullptr; IterateGridItems(aGridItem);) {
+            if (aGridItem->mGridItemType == theType) {
+                aGridItem->GridItemDie();
+            }
+        }
+    };
+
     if (clearAllGraves) {
         if (!IsOnlineServerModeActive() && !gIsReplayMode) {
-            for (GridItem *aGridItem = nullptr; IterateGridItems(aGridItem);) {
-                if (aGridItem->mGridItemType == GridItemType::GRIDITEM_GRAVESTONE) {
-                    aGridItem->GridItemDie();
-                }
-            }
+            RemoveAllGridItemsOfType(GridItemType::GRIDITEM_GRAVESTONE);
         }
         clearAllGraves = false;
     }
 
     if (gCheatClearAllLadders) {
         if (!IsOnlineServerModeActive() && !gIsReplayMode) {
-            for (GridItem *aGridItem = nullptr; IterateGridItems(aGridItem);) {
-                if (aGridItem->mGridItemType == GridItemType::GRIDITEM_LADDER) {
-                    aGridItem->GridItemDie();
-                }
-            }
+            RemoveAllGridItemsOfType(GridItemType::GRIDITEM_LADDER);
         }
         gCheatClearAllLadders = false;
     }
@@ -3895,9 +3900,9 @@ void Board::Update() {
         if (choiceSeedType != SeedType::SEED_NONE && !IsOnlineServerModeActive() && !gIsReplayMode) {
             if (SeedBank *aSeedBank = mSeedBank[targetSeedBank]) {
                 SeedPacket &aSeedPacket = aSeedBank->mSeedPackets[choiceSeedPacketIndex];
-                if (aSeedBank->mIsZombie || mApp->IsIZombieLevel()) {
+                if (bool aIsIZombieLevel = mApp->IsIZombieLevel(); aSeedBank->mIsZombie || aIsIZombieLevel) {
                     // IZ模式中用不了墓碑
-                    if (Challenge::IsZombieSeedType(choiceSeedType) && (choiceSeedType != SeedType::SEED_ZOMBIE_GRAVESTONE || mApp->IsVSMode())) {
+                    if (Challenge::IsZombieSeedType(choiceSeedType) && !(aIsIZombieLevel && choiceSeedType == SeedType::SEED_ZOMBIE_GRAVESTONE)) {
                         aSeedPacket.mPacketType = choiceSeedType;
                     }
                 } else if (choiceSeedType < SeedType::NUM_SEED_TYPES) {
