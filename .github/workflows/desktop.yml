@@ -152,11 +152,7 @@ jobs:
           fi
           cp "$homura" "$out/"
 
-          mkdir -p "$out/assets"
-          cp -r assets-src/assets/. "$out/assets/"
-          if [ "${{ matrix.language }}" = "en" ]; then
-            cp -r assets-src/overrides/english/. "$out/assets/"
-          fi
+          bash .github/scripts/put-assets-in-place.sh assets-src "$out/assets" ${{ matrix.language }}
 
           cp docs/README.md "$out/README.md"
           echo "$(find "$out" -type f | wc -l) files, $(du -sm "$out" | cut -f1) MB"

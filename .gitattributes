@@ -1,0 +1,3 @@
+# Shell scripts keep LF whatever the checkout does: they run on the CI runners,
+# where a carriage return at the end of every line is a syntax error.
+*.sh text eol=lf
