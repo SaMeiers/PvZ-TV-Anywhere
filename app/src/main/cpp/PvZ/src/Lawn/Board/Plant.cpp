@@ -3784,7 +3784,7 @@ void Plant::UpdateIcebergLettuce() {
                 return;
             }
 
-            Zombie *aZombie = mBoard->ZombieGet(mTargetZombieID);
+            Zombie *aZombie = mBoard->ZombieTryToGet(mTargetZombieID);
             if (IsRemoteServer()) {
                 U16U16_Event event = {{EventType::EVENT_SERVER_BOARD_PLANT_ICE_A_ZOMBIE},
                                       uint16_t(mBoard->mPlants.DataArrayGetID(this)),
