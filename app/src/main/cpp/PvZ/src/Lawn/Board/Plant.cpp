@@ -1967,7 +1967,7 @@ Zombie *Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon) {
                     continue;
                 }
 
-                if (aZombie->mZombieType == ZombieType::ZOMBIE_POLEVAULTER) {
+                if (aZombie->mZombieType == ZombieType::ZOMBIE_POLEVAULTER || aZombie->mZombieType == ZombieType::ZOMBIE_GIGA_POLEVAULTER) {
                     aAttackRect.mX += 40;
                     aAttackRect.mWidth -= 40; // 原版经典土豆地雷 Bug 及“四撑杆引雷”的原理
                 }
