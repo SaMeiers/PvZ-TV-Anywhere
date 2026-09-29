@@ -1082,9 +1082,14 @@ void Zombie::UpdateZombieScientist() {
 
     if (mZombiePhase == ZombiePhase::PHASE_SCIENTIST_SHOOTING) {
         if (!IsImmobilizied() && aBodyReanim->ShouldTriggerTimedEvent(0.44f)) {
-            Reanimation *aMistReanim = mApp->AddReanimation(mPosX + 20.0f, mPosY + 80.0f, mRenderOrder + 1, ReanimationType::REANIM_HEAL_MIST);
+            const bool aFlipMist = IsWalkingBackwards();
+            const float aMistX = mPosX + (aFlipMist ? mWidth - 20.0f : 20.0f);
+            Reanimation *aMistReanim = mApp->AddReanimation(aMistX, mPosY + 80.0f, mRenderOrder + 1, ReanimationType::REANIM_HEAL_MIST);
             if (aMistReanim != nullptr) {
                 aMistReanim->PlayReanim("anim_mist", ReanimLoopType::REANIM_PLAY_ONCE, 0, 24.0f);
+                if (aFlipMist) {
+                    aMistReanim->OverrideScale(-1.0f, 1.0f);
+                }
             }
             ApplyScientistSpray();
             mApp->PlayFoley(FoleyType::FOLEY_BALLOONINFLATE);
