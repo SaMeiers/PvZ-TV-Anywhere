@@ -4865,6 +4865,7 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount, int thePlayerInd
     GetPlantsOnLawn(aGridX, aGridY, &aPlantOnLawn);
     Plant *aNormalPlant = aPlantOnLawn.mNormalPlant;
     Plant *aPumpkinPlant = aPlantOnLawn.mPumpkinPlant;
+    bool aFreePlantingActive = FreePlantAt && !IsOnlineServerModeActive() && !gIsReplayMode;
     if (aNormalPlant != nullptr && aNormalPlant->IsUpgradableTo(aPlantingSeedType)) {
         if (aPlantingSeedType == SeedType::SEED_GLOOMSHROOM) {
             aIsAwake = !aNormalPlant->mIsAsleep;
@@ -4872,12 +4873,12 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount, int thePlayerInd
         }
         aNormalPlant->Die();
     }
-    if (Plant::IsDefender(aPlantingSeedType) && aPlantingSeedType != SeedType::SEED_PUMPKINSHELL && aNormalPlant != nullptr) {
+    if (!aFreePlantingActive && Plant::IsDefender(aPlantingSeedType) && aPlantingSeedType != SeedType::SEED_PUMPKINSHELL && aNormalPlant != nullptr) {
         if (aNormalPlant->mSeedType == aPlantingSeedType) {
             aNormalPlant->Die();
         }
     }
-    if (aPlantingSeedType == SeedType::SEED_PUMPKINSHELL && aPumpkinPlant != nullptr) {
+    if (!aFreePlantingActive && aPlantingSeedType == SeedType::SEED_PUMPKINSHELL && aPumpkinPlant != nullptr) {
         if (aPumpkinPlant->mSeedType == SeedType::SEED_PUMPKINSHELL) {
             aPumpkinPlant->Die();
         }
