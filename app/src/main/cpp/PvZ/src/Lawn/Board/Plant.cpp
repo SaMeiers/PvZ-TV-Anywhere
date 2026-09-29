@@ -1956,7 +1956,7 @@ Zombie *Plant::FindTargetZombie(int theRow, PlantWeapon thePlantWeapon) {
                     continue;
                 }
 
-                if (aZombie->mIsEating || mState == PlantState::STATE_CHOMPER_BITING) {
+                if (aZombie->mIsEating || mState == PlantState::STATE_CHOMPER_BITING || aZombie->mZombiePhase == ZombiePhase::PHASE_SCIENTIST_SHOOTING) {
                     aExtraRange = 60;
                 }
             }
