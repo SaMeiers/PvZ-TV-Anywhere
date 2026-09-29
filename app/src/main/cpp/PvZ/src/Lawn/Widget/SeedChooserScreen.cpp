@@ -1493,6 +1493,16 @@ void SeedChooserScreen::_constructor(bool theIsZombieChooser) {
     auto &buttonList = mButtons.Construct();
     mApp = reinterpret_cast<LawnApp *>(Sexy::gSexyAppBase);
     mBoard = mApp->mBoard;
+    mReanimSeedChooser = ReanimationID::REANIMATIONID_NULL;
+    if (mApp->IsVSMode()) {
+        ReanimatorEnsureDefinitionLoaded(ReanimationType::REANIM_APPLE_CLOCK, true);
+        Reanimation *aClockReanim = mApp->AddReanimation(335.0f, 600.0f, 0, ReanimationType::REANIM_APPLE_CLOCK);
+        aClockReanim->mAnimRate = 0.0f;
+        aClockReanim->mIsAttachment = true;
+        aClockReanim->OverrideScale(0.4f, 0.4f);
+        mReanimSeedChooser = mApp->ReanimationGetID(aClockReanim);
+        ResetTimedDraftClockAnimation();
+    }
     if (mApp->IsVSMode() && !theIsZombieChooser) {
         // A VS match always constructs the plant chooser first.  Clearing the
         // old plan here gives a fresh random archetype even when a human
@@ -1851,6 +1861,12 @@ void SeedChooserScreen::_constructor(bool theIsZombieChooser) {
 }
 
 void SeedChooserScreen::_destructor() {
+    Reanimation *aClockReanim = mApp->ReanimationTryToGet(mReanimSeedChooser);
+    if (aClockReanim != nullptr) {
+        aClockReanim->ReanimationDie();
+        mReanimSeedChooser = ReanimationID::REANIMATIONID_NULL;
+    }
+
     delete mMainMenuButton;
     delete mPageButton;
 
@@ -1993,6 +2009,17 @@ void SeedChooserScreen::ResetTimedDraftCountdown() {
     const int seconds = mBanningPhase ? kBanCountdownSeconds : kPickCountdownSeconds;
     mTimedDraftTicksRemaining = seconds * MP_SUDDEN_DEATH_TICKS_PER_SECOND;
     mTimedDraftWasActive = false;
+    ResetTimedDraftClockAnimation();
+}
+
+void SeedChooserScreen::ResetTimedDraftClockAnimation() {
+    Reanimation *aClockReanim = mApp->ReanimationTryToGet(mReanimSeedChooser);
+    if (aClockReanim == nullptr) {
+        return;
+    }
+
+    aClockReanim->PlayReanim("anim_timer", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 0, 0.0f);
+    aClockReanim->mAnimTime = 0.0f;
 }
 
 void SeedChooserScreen::SkipTimedBan() {
@@ -2038,6 +2065,9 @@ void SeedChooserScreen::HandleTimedDraftTimeout() {
     for (int seedIndex = 0; seedIndex < GetSeedStorageCount(); ++seedIndex) {
         ChosenSeed &chosenSeed = GetChosenSeed(seedIndex);
         const SeedType seedType = mIsZombieChooser ? GetZombieSeedType(seedIndex) : GetPlantSeedType(seedIndex);
+        if (!mIsZombieChooser && seedType > SeedType::SEED_MELONPULT && seedType < SeedType::SEED_ICEBERG_LETTUCE) {
+            continue;
+        }
         if (seedType == SeedType::SEED_NONE || !HasPacket(seedType, mIsZombieChooser) || chosenSeed.mSeedState != ChosenSeedState::SEED_IN_CHOOSER || SeedNotAllowedToPick(seedType)
             || SeedNotAllowedDuringTrial(seedType)) {
             continue;
@@ -2080,7 +2110,7 @@ void SeedChooserScreen::HandleTimedDraftTimeout() {
 }
 
 void SeedChooserScreen::UpdateTimedDraftCountdown() {
-    const bool onlineSession = IsRemoteClient() || IsRemoteServer() || gIsServerModeSpectator || gIsReplayMode;
+    const bool onlineSession = IsRemoteClientOrViewer() || IsRemoteServer();
     VSSetupMenu *setupMenu = mApp->mVSSetupMenu;
     if (!onlineSession || !VSSetupAddonWidget::msTimedDraftMode || setupMenu == nullptr || setupMenu->mState != VSSetupMenu::VS_SETUP_STATE_CUSTOM_BATTLE) {
         mTimedDraftWasActive = false;
@@ -2096,13 +2126,25 @@ void SeedChooserScreen::UpdateTimedDraftCountdown() {
         const int seconds = mBanningPhase ? kBanCountdownSeconds : kPickCountdownSeconds;
         mTimedDraftTicksRemaining = seconds * MP_SUDDEN_DEATH_TICKS_PER_SECOND;
         mTimedDraftWasActive = true;
+        ResetTimedDraftClockAnimation();
     }
 
     if (mTimedDraftTicksRemaining > 0) {
         --mTimedDraftTicksRemaining;
     }
-    if (mTimedDraftTicksRemaining == 0 && IsRemoteServer()) {
-        HandleTimedDraftTimeout();
+
+    const int totalTicks = (mBanningPhase ? kBanCountdownSeconds : kPickCountdownSeconds) * MP_SUDDEN_DEATH_TICKS_PER_SECOND;
+    Reanimation *aClockReanim = mApp->ReanimationTryToGet(mReanimSeedChooser);
+    if (aClockReanim != nullptr && totalTicks > 0) {
+        aClockReanim->mAnimTime = std::clamp(1.0f - float(mTimedDraftTicksRemaining) / float(totalTicks), 0.0f, 1.0f);
+    }
+
+    if (mTimedDraftTicksRemaining == 0) {
+        if (IsRemoteServer()) {
+            HandleTimedDraftTimeout();
+        } else if (!IsRemoteClientOrViewer()) {
+            ResetTimedDraftCountdown();
+        }
     }
 }
 
@@ -2110,6 +2152,11 @@ void SeedChooserScreen::Update() {
     Sexy::Widget::Update();
     mSeedChooserAge++;
     UpdateTimedDraftCountdown();
+
+    Reanimation *aClockReanim = mApp->ReanimationTryToGet(mReanimSeedChooser);
+    if (aClockReanim != nullptr && aClockReanim->mIsAttachment) {
+        aClockReanim->Update();
+    }
 
     // 记录当前1P选卡是否选满
     if (mApp->IsCoopMode()) {
@@ -4699,20 +4746,20 @@ void SeedChooserScreen::Draw(Graphics *g) { // Early returns for dialogsif (mApp
 }
 
 void SeedChooserScreen::DrawTimedDraftCountdown(Graphics *g) {
+    const bool onlineSession = IsRemoteClientOrViewer() || IsRemoteServer();
     VSSetupMenu *setupMenu = mApp->mVSSetupMenu;
-    if (!VSSetupAddonWidget::msTimedDraftMode || setupMenu == nullptr || setupMenu->mState != VSSetupMenu::VS_SETUP_STATE_CUSTOM_BATTLE || !CanPickNow()) {
+    if (!onlineSession || !VSSetupAddonWidget::msTimedDraftMode || setupMenu == nullptr || setupMenu->mState != VSSetupMenu::VS_SETUP_STATE_CUSTOM_BATTLE || !CanPickNow()) {
         return;
     }
 
     Graphics timerGraphics(*g);
-    timerGraphics.mTransX = 0;
-    timerGraphics.mTransY = 0;
+    timerGraphics.mTransX -= mX;
+    timerGraphics.mTransY -= mY;
+    timerGraphics.ClearClipRect();
 
-    if (mBoard->mChallenge != nullptr) {
-        Reanimation *clockReanim = mApp->ReanimationTryToGet(mBoard->mChallenge->mReanimChallenge);
-        if (clockReanim != nullptr) {
-            clockReanim->Draw(&timerGraphics);
-        }
+    Reanimation *clockReanim = mApp->ReanimationTryToGet(mReanimSeedChooser);
+    if (clockReanim != nullptr) {
+        clockReanim->Draw(&timerGraphics);
     }
 
     int remainingTicks = mTimedDraftTicksRemaining;
@@ -4722,7 +4769,7 @@ void SeedChooserScreen::DrawTimedDraftCountdown(Graphics *g) {
     }
     const int remainingSeconds = std::max(0, (remainingTicks + MP_SUDDEN_DEATH_TICKS_PER_SECOND - 1) / MP_SUDDEN_DEATH_TICKS_PER_SECOND);
     const Color timerColor = remainingSeconds <= 10 ? Color(255, 0, 0) : Color::White;
-    TodDrawString(&timerGraphics, StrFormat("%d:%02d", remainingSeconds / 60, remainingSeconds % 60), 400, 620, Sexy::FONT_DWARVENTODCRAFT18, timerColor, DS_ALIGN_CENTER);
+    TodDrawString(&timerGraphics, StrFormat("%d:%02d", remainingSeconds / 60, remainingSeconds % 60), 400, 640, Sexy::FONT_DWARVENTODCRAFT18, timerColor, DS_ALIGN_CENTER);
 }
 
 void SeedChooserScreen::SetPageIndex(int thePageIndex) {

@@ -158,6 +158,7 @@ public:
     GameButton *mMainMenuButton = nullptr;
     int mTimedDraftTicksRemaining = 0;
     bool mTimedDraftWasActive = false;
+    ReanimationID mReanimSeedChooser = ReanimationID::REANIMATIONID_NULL;
 
     SeedChooserScreen(bool theIsZombieChooser) {
         _constructor(theIsZombieChooser);
@@ -230,6 +231,7 @@ public:
     void Update();
     void UpdateTimedDraftCountdown();
     void ResetTimedDraftCountdown();
+    void ResetTimedDraftClockAnimation();
     void HandleTimedDraftTimeout();
     void SkipTimedBan();
     void UpdateBuiltinAIPick();
