@@ -35,7 +35,7 @@
 #include "PvZ/Lawn/Widget/TitleScreen.h"
 #include "PvZ/Lawn/Widget/VSResultsMenu.h"
 #include "PvZ/Lawn/Widget/VSSetupMenu.h"
-#include "PvZ/Lawn/Widget/WaitForSecondPlayerDialog.h"
+#include "PvZ/Lawn/Widget/NetplayLobbyWidget.h"
 #include "PvZ/NetPlay.h"
 #include "PvZ/ReplaySystem.h"
 #include "PvZ/STL/string.h"
@@ -533,8 +533,8 @@ void LawnApp::HandleTcpClientMessage(const std::byte *buf, size_t bufSize) {
                 mVSResultsMenu->processClientEvent(event);
             }
         } else if (event->type >= EVENT_SERVER_WAITFORSECONDPALYER_VERSION_CHECK && event->type < NUM_EVENT_WAITFORSECONDPALYER) {
-            if (auto *dialog = GetDialog(DIALOG_WAIT_FOR_SECOND_PLAYER)) {
-                static_cast<WaitForSecondPlayerDialog *>(dialog)->processClientEvent(event);
+            if (auto *dialog = NetplayLobbyWidget::GetInstance()) {
+                dialog->ProcessClientEvent(event);
             }
         } else {
             throw std::runtime_error{std::format("Unknown-type event (type = {}, size = {})", int(event->type), event->size)};
@@ -548,7 +548,7 @@ void LawnApp::HandleTcpClientMessage(const std::byte *buf, size_t bufSize) {
 
 void LawnApp::HandleTcpServerMessage(const std::byte *buf, size_t bufSize) {
     serverRecvBuffer.append_range(std::views::counted(buf, bufSize));
-    auto *waitDialog = WaitForSecondPlayerDialog::GetInstance();
+    auto *waitDialog = NetplayLobbyWidget::GetInstance();
     size_t offset = 0;
 
     while (serverRecvBuffer.size() >= offset + sizeof(BaseEvent)) {
@@ -565,7 +565,7 @@ void LawnApp::HandleTcpServerMessage(const std::byte *buf, size_t bufSize) {
 
         if (waitDialog != nullptr && waitDialog->ServerIsWaitingReservedSpectate()) {
             if (event->type == EVENT_SERVER_VSSETUPMENU_SYNC_VS_MODE) {
-                waitDialog->processServerEvent(event);
+                waitDialog->ProcessServerEvent(event);
             }
             offset += event->size;
             continue;
@@ -627,7 +627,7 @@ void LawnApp::HandleTcpServerMessage(const std::byte *buf, size_t bufSize) {
                 }
             }
         } else if (waitDialog != nullptr && event->type == EVENT_SERVER_VSSETUPMENU_SYNC_VS_MODE && gIsServerModeSpectator) {
-            waitDialog->processServerEvent(event);
+            waitDialog->ProcessServerEvent(event);
         } else if (event->type >= EVENT_SERVER_VSSETUPMENU_BUTTON_DEPRESS && event->type < NUM_EVENT_VSSETUPMENU) {
             if (mVSSetupMenu != nullptr) {
                 const bool spectatorClientVsSetupEvent = (gIsServerModeSpectator || gIsReplayMode)
@@ -642,7 +642,7 @@ void LawnApp::HandleTcpServerMessage(const std::byte *buf, size_t bufSize) {
             }
         } else if (event->type >= EVENT_SERVER_WAITFORSECONDPALYER_VERSION_CHECK && event->type < NUM_EVENT_WAITFORSECONDPALYER) {
             if (waitDialog != nullptr) {
-                waitDialog->processServerEvent(event);
+                waitDialog->ProcessServerEvent(event);
             }
         } else if (event->type >= EVENT_CLIENT_VSRESULT_BUTTON_DEPRESS && event->type < NUM_EVENT_VSRESULT) {
             if (mVSResultsMenu != nullptr) {
@@ -739,7 +739,7 @@ void LawnApp::UpdateFrames() {
                 ResetNetDelayState();
                 if (mVSResultsMenu != nullptr) {
                     mVSResultsMenu->HandleOpponentDisconnected();
-                } else if (!GetDialog(DIALOG_WAIT_FOR_SECOND_PLAYER)) {
+                } else if (NetplayLobbyWidget::GetInstance() == nullptr) {
                     if (gTcpListenSocket >= 0) {
                         close(gTcpListenSocket);
                         gTcpListenSocket = -1;

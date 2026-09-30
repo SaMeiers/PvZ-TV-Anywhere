@@ -26,8 +26,8 @@
 #include "PvZ/Lawn/Common/ConstEnums.h"
 #include "PvZ/Lawn/LawnApp.h"
 #include "PvZ/Lawn/Widget/ChallengeScreen.h"
+#include "PvZ/Lawn/Widget/NetplayLobbyWidget.h"
 #include "PvZ/Lawn/Widget/SeedChooserScreen.h"
-#include "PvZ/Lawn/Widget/WaitForSecondPlayerDialog.h"
 #include "PvZ/SexyAppFramework/Widget/WidgetManager.h"
 #include "PvZ/TodLib/Effect/Reanimator.h"
 
@@ -56,11 +56,10 @@ void CutScene::Update() {
     if (mPreUpdatingBoard)
         return;
     if (mApp->mGameMode == GameMode::GAMEMODE_ADVENTURE_TWO_PLAYER || mApp->IsCoopMode()) {
-        if (mApp->mSecondPlayerGamepadIndex == -1 && !mApp->GetDialog(Dialogs::DIALOG_CONTINUE) && !mApp->GetDialog(Dialogs::DIALOG_WAIT_FOR_SECOND_PLAYER)) {
+        if (mApp->mSecondPlayerGamepadIndex == -1 && !mApp->GetDialog(Dialogs::DIALOG_CONTINUE) && NetplayLobbyWidget::GetInstance() == nullptr) {
             mApp->SetSecondPlayer(1);
-            // 未来做结盟联机时，可恢复显示WaitForSecondPlayerDialog
+            // 未来做结盟联机时，可在此打开联机大厅。
 
-            //            auto *aDialog = new WaitForSecondPlayerDialog(mApp);
             //            mApp->AddDialog(aDialog);
             //            mApp->mWidgetManager->SetFocus(aDialog);
             //

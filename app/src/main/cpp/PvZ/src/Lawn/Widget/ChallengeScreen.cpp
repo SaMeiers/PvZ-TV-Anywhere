@@ -53,6 +53,8 @@ bool IsValidVsMode(int mode) {
             return false;
     }
 }
+
+bool gNetplayLobbyFinished = false;
 } // namespace
 
 ChallengeDefinition gChallengeDefs[200] = {
@@ -241,6 +243,8 @@ void ChallengeScreen::_constructor(LawnApp *theApp, ChallengePage thePage) {
     //        mHelpBarWidget->mUnk[24] = 0;
 
     old_ChallengeScreen_ChallengeScreen(this, theApp, thePage);
+    mNetplayLobbyWidget = nullptr;
+    gNetplayLobbyFinished = false;
 
     mBackButton = MakeNewButton(
         ChallengeScreen::ChallengeScreen_Back, this, this, "[CLOSE]", nullptr, Sexy::IMAGE_SEEDCHOOSER_BUTTON_DISABLED, Sexy::IMAGE_SEEDCHOOSER_BUTTON_GLOW, Sexy::IMAGE_SEEDCHOOSER_BUTTON_GLOW);
@@ -272,6 +276,13 @@ void ChallengeScreen::_constructor(LawnApp *theApp, ChallengePage thePage) {
 }
 
 void ChallengeScreen::_destructor() {
+    if (mNetplayLobbyWidget != nullptr) {
+        if (mNetplayLobbyWidget->mParent == this) {
+            RemoveWidget(mNetplayLobbyWidget);
+        }
+        delete mNetplayLobbyWidget;
+        mNetplayLobbyWidget = nullptr;
+    }
     delete mBackButton;
     old_ChallengeScreen__destructor(this);
 }
@@ -491,20 +502,28 @@ void ChallengeScreen::Update() {
     old_ChallengeScreen_Update(this);
 
     if (mPage == ChallengePage::CHALLENGE_PAGE_VS) {
-        if (mConnectDialog == nullptr && mApp->mHelpTextScreen == nullptr && !IsRemoteClient() && !IsRemoteServer()) {
-            mConnectDialog = new WaitForSecondPlayerDialog(mApp);
-            mApp->AddDialog(mConnectDialog);
+        if (!gNetplayLobbyFinished && mNetplayLobbyWidget == nullptr && mApp->mHelpTextScreen == nullptr && !IsRemoteClient() && !IsRemoteServer()) {
+            mNetplayLobbyWidget = new NetplayLobbyWidget(mApp);
+            AddWidget(mNetplayLobbyWidget);
             VSSetupAddonWidget::ResetGlobalBpState();
             if (gChallengeScreenOpenReplayManage) {
                 gChallengeScreenOpenReplayManage = false;
-                mConnectDialog->SetMode(UIMode::MODE3_SERVER);
-                mConnectDialog->OpenReplayManageWidget();
+                mNetplayLobbyWidget->SetMode(UIMode::MODE3_SERVER);
+                mNetplayLobbyWidget->OpenReplayManageWidget();
             }
 
-            int aButtonId = mConnectDialog->WaitForResult(true);
-            if (aButtonId == WaitForSecondPlayerDialog::WaitForSecondPlayerDialog_Back) {
+        }
+
+        if (mNetplayLobbyWidget != nullptr && mNetplayLobbyWidget->mCloseRequested) {
+            const int aButtonId = mNetplayLobbyWidget->mResult;
+            gNetplayLobbyFinished = true;
+            RemoveWidget(mNetplayLobbyWidget);
+            delete mNetplayLobbyWidget;
+            mNetplayLobbyWidget = nullptr;
+            if (aButtonId == NetplayLobbyWidget::NetplayLobbyWidget_BackResult) {
                 mApp->KillChallengeScreen();
                 mApp->ShowGameSelector();
+                return;
             }
         }
     }
@@ -521,6 +540,9 @@ void ChallengeScreen::AddedToManager(WidgetManager *theWidgetManager) {
 }
 
 void ChallengeScreen::RemovedFromManager(WidgetManager *theWidgetManager) {
+    if (mNetplayLobbyWidget != nullptr && mNetplayLobbyWidget->mParent == this) {
+        RemoveWidget(mNetplayLobbyWidget);
+    }
     RemoveWidget(mBackButton);
 
     old_ChallengeScreen_RemovedFromManager(this, theWidgetManager);

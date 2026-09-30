@@ -913,13 +913,6 @@ inline void *VSResultsMenu_GetPlayerRecordAddr;
 inline void *VSResultsMenu_ClearPlayerRecordsAddr;
 
 
-inline void *WaitForSecondPlayerDialog_WaitForSecondPlayerDialogAddr;
-inline void *WaitForSecondPlayerDialog_GameButtonDownAddr;
-inline void *WaitForSecondPlayerDialog_KeyDownAddr;
-inline void *WaitForSecondPlayerDialog__destructorAddr;
-inline void *WaitForSecondPlayerDialog__destructor2Addr;
-
-
 inline void *Sexy_Dialog_AddedToManagerWidgetManagerAddr;
 inline void *Sexy_Dialog_RemovedFromManagerAddr;
 inline void *Sexy_Dialog_WaitForResultAddr;
@@ -2277,7 +2270,6 @@ inline void *vTableForConfirmBackToMainDialogAddr;
 inline void *vTableForSettingsDialogAddr;
 inline void *vTableForCreditScreenAddr;
 inline void *vTableForMainMenuAddr;
-inline void *vTableForWaitForSecondPlayerDialogAddr;
 inline void *vTableForSexy_SexyAppBaseAddr;
 inline void *StringIntMap_M_eraseAddr;
 inline void *StringSet_M_eraseAddr;

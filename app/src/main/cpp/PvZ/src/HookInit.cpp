@@ -61,7 +61,6 @@
 #include "PvZ/Lawn/Widget/TrashBin.h"
 #include "PvZ/Lawn/Widget/VSResultsMenu.h"
 #include "PvZ/Lawn/Widget/VSSetupMenu.h"
-#include "PvZ/Lawn/Widget/WaitForSecondPlayerDialog.h"
 #include "PvZ/SexyAppFramework/Graphics/DeviceImage.h"
 #include "PvZ/SexyAppFramework/Graphics/Graphics.h"
 #include "PvZ/SexyAppFramework/Widget/ButtonWidget.h"
@@ -652,10 +651,6 @@ void InitHookFunction() {
     homura::HookFunc(HelpTextScreen__destructorAddr, &HelpTextScreen::_destructor, &old_HelpTextScreen__destructor);
     homura::HookFunc(HelpTextScreen_UpdateAddr, &HelpTextScreen::Update, &old_HelpTextScreen_Update);
 
-    homura::HookFunc(WaitForSecondPlayerDialog_WaitForSecondPlayerDialogAddr, &WaitForSecondPlayerDialog::_constructor, &old_WaitForSecondPlayerDialog_WaitForSecondPlayerDialog);
-    homura::HookFunc(WaitForSecondPlayerDialog__destructorAddr, &WaitForSecondPlayerDialog::_destructor, &old_WaitForSecondPlayerDialog__destructorAddr);
-    homura::HookFunc(WaitForSecondPlayerDialog__destructor2Addr, &WaitForSecondPlayerDialog::_destructor2, &old_WaitForSecondPlayerDialog__destructor2Addr);
-
 
     homura::HookFunc(Sexy_WidgetManager_MouseDownAddr, &Sexy::WidgetManager::MouseDown, &old_Sexy_WidgetManager_MouseDown);
     homura::HookFunc(Sexy_WidgetManager_MouseDragAddr, &Sexy::WidgetManager::MouseDrag, &old_Sexy_WidgetManager_MouseDrag);
@@ -852,11 +847,6 @@ void InitVTableHookFunction() {
     homura::HookVirtualFunc(vTableForMainMenuAddr, 139, &MainMenu::ButtonPress, nullptr);
 
 
-    homura::HookVirtualFunc(vTableForWaitForSecondPlayerDialogAddr, 142, &WaitForSecondPlayerDialog::ButtonDepress_Thunk, &old_WaitForSecondPlayerDialog_ButtonDepress);
-    homura::HookVirtualFunc(vTableForWaitForSecondPlayerDialogAddr, 33, &WaitForSecondPlayerDialog::Update, nullptr);
-    homura::HookVirtualFunc(vTableForWaitForSecondPlayerDialogAddr, 38, &WaitForSecondPlayerDialog::Draw, &old_WaitForSecondPlayerDialog_Draw);
-    homura::HookVirtualFunc(vTableForWaitForSecondPlayerDialogAddr, 52, &WaitForSecondPlayerDialog::Resize, nullptr);
-    homura::HookVirtualFunc(vTableForWaitForSecondPlayerDialogAddr, 78, &WaitForSecondPlayerDialog::MouseDown, nullptr);
 }
 
 void InitOpenSL() {

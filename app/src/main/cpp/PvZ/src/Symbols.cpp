@@ -911,13 +911,6 @@ bool LoadGameMain() {
     VSResultsMenu_ClearPlayerRecordsAddr = libGameMain.GetSymbol("_ZN13VSResultsMenu18ClearPlayerRecordsEv");
 
 
-    WaitForSecondPlayerDialog_WaitForSecondPlayerDialogAddr = libGameMain.GetSymbol("_ZN25WaitForSecondPlayerDialogC2EP7LawnApp");
-    WaitForSecondPlayerDialog_GameButtonDownAddr = libGameMain.GetSymbol("_ZN25WaitForSecondPlayerDialog14GameButtonDownEN4Sexy13GamepadButtonEij");
-    WaitForSecondPlayerDialog_KeyDownAddr = libGameMain.GetSymbol("_ZN25WaitForSecondPlayerDialog7KeyDownEN4Sexy7KeyCodeE");
-    WaitForSecondPlayerDialog__destructorAddr = libGameMain.GetSymbol("_ZN25WaitForSecondPlayerDialogD2Ev");
-    WaitForSecondPlayerDialog__destructor2Addr = libGameMain.GetSymbol("_ZN25WaitForSecondPlayerDialogD0Ev");
-
-
     Sexy_Dialog_AddedToManagerWidgetManagerAddr = libGameMain.GetSymbol("_ZN4Sexy6Dialog14AddedToManagerEPNS_13WidgetManagerE");
     Sexy_Dialog_RemovedFromManagerAddr = libGameMain.GetSymbol("_ZN4Sexy6Dialog18RemovedFromManagerEPNS_13WidgetManagerE");
     Sexy_Dialog_WaitForResultAddr = libGameMain.GetSymbol("_ZN4Sexy6Dialog13WaitForResultEb");
@@ -1485,7 +1478,6 @@ bool LoadGameMain() {
     vTableForSettingsDialogAddr = libGameMain.GetSymbol("_ZTV14SettingsDialog");
     vTableForCreditScreenAddr = libGameMain.GetSymbol("_ZTV12CreditScreen");
     vTableForMainMenuAddr = libGameMain.GetSymbol("_ZTV8MainMenu");
-    vTableForWaitForSecondPlayerDialogAddr = libGameMain.GetSymbol("_ZTV25WaitForSecondPlayerDialog");
     vTableForSexy_SexyAppBaseAddr = libGameMain.GetSymbol("_ZTI7LawnApp");
 
     return true;
