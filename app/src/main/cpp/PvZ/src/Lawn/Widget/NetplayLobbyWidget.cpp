@@ -43,6 +43,9 @@ constexpr int kRoomScrollHeight = 330;
 constexpr int kRoomCardWidth = 390;
 constexpr int kRoomCardHeight = 100;
 constexpr int kRoomCardGap = 15;
+constexpr int kRoomScrollbarX = kRightPanelX + kRightPanelWidth - 14;
+constexpr int kRoomScrollbarWidth = 7;
+constexpr int kRoomScrollbarMinThumbHeight = 42;
 constexpr int kMaxSpectatorNamesShown = 6;
 constexpr int kLobbyStatusY = 630;
 constexpr int kRoomExitedStatusY = 640;
@@ -423,6 +426,22 @@ void NetplayLobbyWidget::Draw(Graphics *g) {
     g->FillRect(Rect(0, 0, mWidth, mHeight));
     DrawPanel(g, Rect(kLeftPanelX, kLeftPanelY, kLeftPanelWidth, kPanelHeight));
     DrawPanel(g, Rect(kRightPanelX, kRightPanelY, kRightPanelWidth, kPanelHeight));
+
+    if (roomContentHeight > kRoomScrollHeight) {
+        const int maxScroll = roomContentHeight - kRoomScrollHeight;
+        const float scrollOffset = std::clamp(-mRoomScrollWidget->GetScrollOffset().mY, 0.0f, static_cast<float>(maxScroll));
+        const float scrollProgress = scrollOffset / static_cast<float>(maxScroll);
+        const int thumbHeight = std::max(kRoomScrollbarMinThumbHeight, kRoomScrollHeight * kRoomScrollHeight / roomContentHeight);
+        const int thumbTravel = kRoomScrollHeight - thumbHeight;
+        const int thumbY = kRoomScrollY + static_cast<int>(thumbTravel * scrollProgress);
+
+        g->SetColor(Color(35, 22, 15, 190));
+        g->FillRect(Rect(kRoomScrollbarX, kRoomScrollY, kRoomScrollbarWidth, kRoomScrollHeight));
+        g->SetColor(Color(178, 132, 70, 230));
+        g->DrawRect(Rect(kRoomScrollbarX, kRoomScrollY, kRoomScrollbarWidth, kRoomScrollHeight));
+        g->SetColor(Color(235, 199, 104, 245));
+        g->FillRect(Rect(kRoomScrollbarX + 1, thumbY + 1, kRoomScrollbarWidth - 2, thumbHeight - 2));
+    }
 
     TodDrawString(g, "[NETPLAY_LOBBY_TITLE]", mWidth / 2, 115, addonFonts.JN_BOBO_HEI36, Color(255, 248, 195), DS_ALIGN_CENTER);
     TodDrawString(g, "[MODE_SERVER_TITLE]", kLeftPanelX + kLeftPanelWidth / 2, 170 + kPanelYOffset, FONT_DWARVENTODCRAFT18, Color(255, 226, 154), DS_ALIGN_CENTER);
