@@ -2604,7 +2604,7 @@ void WaitForSecondPlayerDialog::ButtonDepress_Thunk(this ButtonListener &self, i
             }
             return;
         case NetplayLobbyWidget::NetplayLobbyWidget_ReplayManage:
-            if (!aDialog->mIsCreatingRoom && !aDialog->mIsJoiningRoom && !aDialog->mServerConnected && !aDialog->mServerConnecting) {
+            if (!aDialog->mIsCreatingRoom && !aDialog->mIsJoiningRoom && !aDialog->mServerHosting && !aDialog->mServerJoined && !aDialog->mServerSpectating) {
                 aDialog->OpenReplayManageWidget();
             }
             return;

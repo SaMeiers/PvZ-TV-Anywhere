@@ -357,7 +357,7 @@ void NetplayLobbyWidget::RefreshControls() {
     mAddServerButton->SetLabel("[CONNECT_CUSTOM_SERVER]");
     mAddServerButton->mDisabled = lanRoomActive || serverRoomActive || mDialog->mServerConnecting;
     mReplayManageButton->SetLabel("[REPLAY_MANAGE]");
-    mReplayManageButton->mDisabled = lanRoomActive || serverRoomActive || mDialog->mServerConnected || mDialog->mServerConnecting;
+    mReplayManageButton->mDisabled = roomActive;
     mLocalBattleButton->SetLabel("[PLAY_OFFLINE]");
     mLocalBattleButton->mDisabled = roomActive || mDialog->mServerConnecting;
 
