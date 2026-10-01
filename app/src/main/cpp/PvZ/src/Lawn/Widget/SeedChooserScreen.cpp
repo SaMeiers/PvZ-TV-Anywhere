@@ -44,13 +44,14 @@
 
 #include <unistd.h>
 
-#include <climits>
-#include <cstddef>
 #include <algorithm>
 #include <array>
 #include <iterator>
 #include <limits>
 #include <vector>
+
+#include <climits>
+#include <cstddef>
 
 using namespace Sexy;
 

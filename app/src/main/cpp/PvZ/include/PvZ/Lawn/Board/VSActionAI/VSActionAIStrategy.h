@@ -22,9 +22,10 @@
 
 #include "PvZ/Lawn/Board/VSActionAI/VSActionAIPlacement.h"
 
-#include <cstdint>
 #include <array>
 #include <memory>
+
+#include <cstdint>
 
 namespace vsai::detail {
 

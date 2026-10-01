@@ -12,8 +12,9 @@
 #include "PvZ/SexyAppFramework/Widget/ButtonListener.h"
 #include "PvZ/SexyAppFramework/Widget/Widget.h"
 
-#include <cstdint>
 #include <string>
+
+#include <cstdint>
 
 struct BaseEvent;
 struct sockaddr_in;

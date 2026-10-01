@@ -22,10 +22,11 @@
 
 #include "PvZ/Lawn/VSActionSystem.h"
 
-#include <cstddef>
-#include <cstdint>
 #include <optional>
 #include <vector>
+
+#include <cstddef>
+#include <cstdint>
 
 namespace vsai::detail {
 

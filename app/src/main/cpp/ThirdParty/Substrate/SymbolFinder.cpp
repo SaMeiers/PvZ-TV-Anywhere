@@ -3,8 +3,8 @@
 #include <android/log.h>
 #include <elf.h>
 #include <fcntl.h>
-#include <sys/mman.h>
 #include <malloc.h>
+#include <sys/mman.h>
 
 #include <cstdio>
 #include <cstdlib>

@@ -845,8 +845,6 @@ void InitVTableHookFunction() {
     homura::HookVirtualFunc(vTableForCreditScreenAddr, 133, &CreditScreen::ButtonDepress, nullptr);
 
     homura::HookVirtualFunc(vTableForMainMenuAddr, 139, &MainMenu::ButtonPress, nullptr);
-
-
 }
 
 void InitOpenSL() {

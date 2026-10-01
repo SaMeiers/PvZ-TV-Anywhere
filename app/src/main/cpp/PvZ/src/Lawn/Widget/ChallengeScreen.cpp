@@ -511,7 +511,6 @@ void ChallengeScreen::Update() {
                 mNetplayLobbyWidget->SetMode(UIMode::MODE3_SERVER);
                 mNetplayLobbyWidget->OpenReplayManageWidget();
             }
-
         }
 
         if (mNetplayLobbyWidget != nullptr && mNetplayLobbyWidget->mCloseRequested) {

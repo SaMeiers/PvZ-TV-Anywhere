@@ -18,6 +18,7 @@
  */
 
 #include "PvZ/Lawn/LawnApp.h"
+
 #include "Homura/Assert.h"
 #include "Homura/Logger.h"
 #include "PvZ/GlobalVariable.h"
@@ -30,12 +31,12 @@
 #include "PvZ/Lawn/Widget/ChallengeScreen.h"
 #include "PvZ/Lawn/Widget/ConfirmBackToMainDialog.h"
 #include "PvZ/Lawn/Widget/MainMenu.h"
+#include "PvZ/Lawn/Widget/NetplayLobbyWidget.h"
 #include "PvZ/Lawn/Widget/SeedChooserScreen.h"
 #include "PvZ/Lawn/Widget/SettingsDialog.h"
 #include "PvZ/Lawn/Widget/TitleScreen.h"
 #include "PvZ/Lawn/Widget/VSResultsMenu.h"
 #include "PvZ/Lawn/Widget/VSSetupMenu.h"
-#include "PvZ/Lawn/Widget/NetplayLobbyWidget.h"
 #include "PvZ/NetPlay.h"
 #include "PvZ/ReplaySystem.h"
 #include "PvZ/STL/string.h"
@@ -49,10 +50,11 @@
 
 #include <unistd.h>
 
-#include <cstdint>
 #include <algorithm>
 #include <limits>
 #include <ranges>
+
+#include <cstdint>
 
 using namespace Sexy;
 

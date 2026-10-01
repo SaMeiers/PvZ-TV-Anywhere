@@ -13,8 +13,9 @@
 
 #include "PvZ/Lawn/Common/GameConstants.h"
 
-#include <cstddef>
 #include <algorithm>
+
+#include <cstddef>
 
 namespace vsai::detail {
 

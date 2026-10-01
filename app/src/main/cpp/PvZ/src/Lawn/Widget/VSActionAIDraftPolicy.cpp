@@ -22,10 +22,11 @@
 #include "PvZ/SexyAppFramework/Buffer.h"
 #include "PvZ/SexyAppFramework/SexyAppBase.h"
 
-#include <cstdint>
 #include <algorithm>
 #include <array>
 #include <vector>
+
+#include <cstdint>
 
 namespace vsai::draft {
 

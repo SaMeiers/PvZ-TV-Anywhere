@@ -6,9 +6,9 @@
 
 #include "PvZ/Lawn/Widget/NetplayLobbyWidget.h"
 
-#include "Homura/MemberUtils.h"
 #include "Homura/BitUtils.h"
 #include "Homura/Logger.h"
+#include "Homura/MemberUtils.h"
 #include "Homura/StringUtils.h"
 #include "PvZ/Android/Native/BridgeApp.h"
 #include "PvZ/Android/Native/NativeApp.h"
@@ -23,19 +23,21 @@
 #include "PvZ/TodLib/Common/TodCommon.h"
 #include "PvZ/TodLib/Common/TodStringFile.h"
 
-#include <cstring>
-#include <algorithm>
-#include <mutex>
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <net/if.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/endian.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <cstdio>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <net/if.h>
+
+#include <algorithm>
+#include <mutex>
 #include <vector>
+
+#include <cstdio>
+#include <cstring>
 
 using namespace Sexy;
 
@@ -681,8 +683,10 @@ constexpr const char *kOfficialServer1Addr = "8.134.55.112:26667";
 constexpr const char *kOfficialServer2Addr = "47.122.122.51:26667";
 
 static void CloseSocketFd(int &fd, bool do_shutdown = true) {
-    if (fd < 0) return;
-    if (do_shutdown) shutdown(fd, SHUT_RDWR);
+    if (fd < 0)
+        return;
+    if (do_shutdown)
+        shutdown(fd, SHUT_RDWR);
     close(fd);
     fd = -1;
 }
@@ -969,7 +973,7 @@ static void Mode3ResetTargetLatencyProbes(NetplayLobbyWidget *dialog) {
     dialog->mServerTargetNextRefreshTick = 0;
 }
 
-}
+} // namespace
 
 bool NetplayLobbyWidget::ServerHostRoomLocked() const {
     return this->mUIMode == UIMode::MODE3_SERVER && this->mServerConnected && this->mServerHosting && (this->mServerHostHasGuest || this->mServerSpectating);
@@ -1149,7 +1153,8 @@ void NetplayLobbyWidget::RefreshButtons() {
                 canJoinServer = Mode3GetSelectedTargetAddr(this, targetAddr);
             }
 
-            bool canJoinIdle = (this->mServerConnected && !this->mServerConnecting && !this->mServerHosting && !this->mServerJoined && !this->mServerSpectating && !this->mServerCreatePending && !startBusy && (this->mServerRoomCount > 0));
+            bool canJoinIdle = (this->mServerConnected && !this->mServerConnecting && !this->mServerHosting && !this->mServerJoined && !this->mServerSpectating && !this->mServerCreatePending
+                                && !startBusy && (this->mServerRoomCount > 0));
             if (inServerListMode) {
                 this->mJoinRoomButton->mDisabled = !canJoinServer || startBusy || hostLocked;
             } else {
@@ -1739,7 +1744,11 @@ void NetplayLobbyWidget::ServerUpdateIO() {
                         }
                         this->mServerP2PProbeDone = false;
 
-                        LOG_DEBUG("[P2P_READY] probePort1={} probePort2={} token={} localPort={}", this->mServerP2PProbePort, this->mServerP2PProbePort2, this->mServerP2PProbeToken, this->mServerP2PLocalPort);
+                        LOG_DEBUG("[P2P_READY] probePort1={} probePort2={} token={} localPort={}",
+                                  this->mServerP2PProbePort,
+                                  this->mServerP2PProbePort2,
+                                  this->mServerP2PProbeToken,
+                                  this->mServerP2PLocalPort);
 
                         const bool started = ServerSendP2PProbe();
                         LOG_DEBUG("[P2P_READY] probe started={} probeDone={}", started, this->mServerP2PProbeDone);
@@ -1756,8 +1765,12 @@ void NetplayLobbyWidget::ServerUpdateIO() {
                 break;
             }
             case 0x88: { // P2P_INFO
-                LOG_DEBUG(
-                    "[P2P_INFO] role={} hosting={} localPort={} probeDone={} rawLen={}", this->mServerHosting ? "host" : "guest", (int)this->mServerHosting, this->mServerP2PLocalPort, (int)this->mServerP2PProbeDone, len);
+                LOG_DEBUG("[P2P_INFO] role={} hosting={} localPort={} probeDone={} rawLen={}",
+                          this->mServerHosting ? "host" : "guest",
+                          (int)this->mServerHosting,
+                          this->mServerP2PLocalPort,
+                          (int)this->mServerP2PProbeDone,
+                          len);
                 ServerHandleP2PInfo(payload, len);
                 LOG_DEBUG("[P2P_INFO] parsed roomId={} peer={}:{} timeoutSec={} status='{}'",
                           this->mServerP2PTargetRoomId,
@@ -1979,7 +1992,8 @@ void NetplayLobbyWidget::ServerResetP2PState(bool keepListener) {
     this->mServerP2PPeerIp[0] = '\0';
 
     if (this->mServerP2PListenSock >= 0 && p2pNegotiating) {
-        this->mServerP2PStatusText = this->mServerP2PNatSent ? StrFormat("P2P: local port %d registered", this->mServerP2PLocalPort) : StrFormat("P2P: listener ready on %d", this->mServerP2PLocalPort);
+        this->mServerP2PStatusText =
+            this->mServerP2PNatSent ? StrFormat("P2P: local port %d registered", this->mServerP2PLocalPort) : StrFormat("P2P: listener ready on %d", this->mServerP2PLocalPort);
     } else if (this->mServerP2PListenerFailed) {
         this->mServerP2PStatusText = "P2P: listener unavailable, relay only";
     } else {
@@ -3231,7 +3245,7 @@ static void Mode3UpdateTargetLatencyProbes(NetplayLobbyWidget *dialog) {
         }
     }
 }
-}
+} // namespace
 
 pvzstl::string GetLocalIpPlayerCode() {
     std::vector<BroadcastTarget> targets;
@@ -3744,7 +3758,8 @@ void NetplayLobbyWidget::CreateRoom() {
 
         pvzstl::string strFmt = TodStringTranslate("[CREATE_ROOM_FAIL_BIND]");
 
-        int result = this->mApp->LawnMessageBox(Dialogs::DIALOG_MESSAGE, "[CREATE_ROOM_FAIL_TITLE]", StrFormat(strFmt.c_str(), this->mApp->mPlayerInfo->mVSRoomPort).c_str(), "[DIALOG_BUTTON_OK]", "", 3);
+        int result =
+            this->mApp->LawnMessageBox(Dialogs::DIALOG_MESSAGE, "[CREATE_ROOM_FAIL_TITLE]", StrFormat(strFmt.c_str(), this->mApp->mPlayerInfo->mVSRoomPort).c_str(), "[DIALOG_BUTTON_OK]", "", 3);
         if (result == 1000) {
             this->mInputPurpose = InputPurpose::HOST_SET_PORT;
             ShowTextInput("[INPUT_TITLE_SET_PORT]", "[HINT_PORT]");
@@ -4403,7 +4418,6 @@ void NetplayLobbyWidget::HandleButtonDepress(int theId) {
         default:
             break;
     }
-
 }
 
 void NetplayLobbyWidget::ButtonDepress_Thunk(this Sexy::ButtonListener &self, int id) {

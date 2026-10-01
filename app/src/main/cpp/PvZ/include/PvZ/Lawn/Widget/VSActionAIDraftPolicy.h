@@ -22,9 +22,10 @@
 
 #include "PvZ/Lawn/Common/ConstEnums.h"
 
+#include <span>
+
 #include <cstddef>
 #include <cstdint>
-#include <span>
 
 class LawnApp;
 

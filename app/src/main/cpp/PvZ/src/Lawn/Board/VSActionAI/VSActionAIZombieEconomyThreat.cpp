@@ -9,15 +9,14 @@
  * option) any later version.
  */
 
+#include "PvZ/Lawn/Board/VSActionAI/VSActionAILanePolicy.h"
+#include "PvZ/Lawn/Board/VSActionAI/VSActionAIStrategy.h"
 #include "PvZ/Lawn/Board/VSActionAI/VSActionAIThreat.h"
 
-#include "PvZ/Lawn/Board/VSActionAI/VSActionAILanePolicy.h"
-
-#include "PvZ/Lawn/Board/VSActionAI/VSActionAIStrategy.h"
-
-#include <cmath>
 #include <algorithm>
 #include <limits>
+
+#include <cmath>
 
 namespace vsai::detail {
 

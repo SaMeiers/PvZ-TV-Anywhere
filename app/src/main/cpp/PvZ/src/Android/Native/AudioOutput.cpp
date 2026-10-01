@@ -22,12 +22,13 @@
 #include <SLES/OpenSLES.h>
 #include <SLES/OpenSLES_Android.h>
 
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
 #include <array>
 #include <condition_variable>
 #include <mutex>
+
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 
 namespace {
 

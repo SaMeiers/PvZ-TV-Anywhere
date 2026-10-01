@@ -11,15 +11,15 @@
 
 #include "PvZ/Lawn/Board/VSActionAI/VSActionAIPlacement.h"
 
-#include "PvZ/Lawn/Board/VSActionAI/VSActionAILanePolicy.h"
-
 #include "PvZ/Lawn/Board/GridItem.h"
+#include "PvZ/Lawn/Board/VSActionAI/VSActionAILanePolicy.h"
 #include "PvZ/Lawn/Common/GameConstants.h"
 
-#include <cmath>
 #include <algorithm>
 #include <array>
 #include <limits>
+
+#include <cmath>
 
 namespace vsai::detail {
 
