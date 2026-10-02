@@ -1494,6 +1494,8 @@ void SeedChooserScreen::_constructor(bool theIsZombieChooser) {
     auto &buttonList = mButtons.Construct();
     mApp = reinterpret_cast<LawnApp *>(Sexy::gSexyAppBase);
     mBoard = mApp->mBoard;
+    mBackToModeSelectButton = nullptr;
+    mBackToModeSelectRequested = false;
     mReanimSeedChooser = ReanimationID::REANIMATIONID_NULL;
     if (mApp->IsVSMode()) {
         ReanimatorEnsureDefinitionLoaded(ReanimationType::REANIM_APPLE_CLOCK, true);
@@ -1859,6 +1861,12 @@ void SeedChooserScreen::_constructor(bool theIsZombieChooser) {
         mMainMenuButton = MakeButton(104, this, this, "[MENU_BUTTON]");
         mMainMenuButton->Resize(mApp->IsCoopMode() ? 345 : 650, -3, 120, 80);
     }
+    if (mApp->IsCoopMode()) {
+        mBackToModeSelectButton = MakeModeSelectBackButton(SeedChooserScreen_BackToModeSelect, this, this);
+        mBackToModeSelectButton->Resize(600, 550, 160, 50);
+        mBackToModeSelectButton->SetVisible(false);
+        mBackToModeSelectButton->SetDisabled(true);
+    }
 }
 
 void SeedChooserScreen::_destructor() {
@@ -1870,12 +1878,20 @@ void SeedChooserScreen::_destructor() {
 
     delete mMainMenuButton;
     delete mPageButton;
+    delete mBackToModeSelectButton;
 
     old_SeedChooserScreen__destructor(this);
 }
 
 void SeedChooserScreen::AddedToManager(Sexy::WidgetManager *theWidgetManager) {
     old_SeedChooserScreen_AddedToManager(this, theWidgetManager);
+
+    if (mBackToModeSelectButton != nullptr) {
+        // ShowSeedChooserScreen initially resizes us to the background image.
+        // Include the extra button in our hit-test bounds as well.
+        Resize(mX, mY, std::max(mWidth, 800), std::max(mHeight, 600));
+        AddWidget(mBackToModeSelectButton);
+    }
 
     if (mPageButton != nullptr) {
         AddWidget(mPageButton);
@@ -1886,6 +1902,9 @@ void SeedChooserScreen::AddedToManager(Sexy::WidgetManager *theWidgetManager) {
 }
 
 void SeedChooserScreen::RemovedFromManager(Sexy::WidgetManager *theWidgetManager) {
+    if (mBackToModeSelectButton != nullptr) {
+        RemoveWidget(mBackToModeSelectButton);
+    }
     if (mPageButton != nullptr) {
         RemoveWidget(mPageButton);
     }
@@ -2218,6 +2237,11 @@ void SeedChooserScreen::Update() {
     }
 
     UpdateViewLawn();
+    if (mBackToModeSelectButton != nullptr) {
+        const bool choosing = mMouseVisible && mBoard->mCutScene != nullptr && mBoard->mCutScene->mSeedChoosing && mChooseState == SeedChooserState::CHOOSE_NORMAL;
+        mBackToModeSelectButton->SetVisible(choosing);
+        mBackToModeSelectButton->SetDisabled(!choosing || gIsServerModeSpectator || gIsReplayMode);
+    }
     MarkDirty();
     TryAutoStartBuiltinVSMatch(this);
 }
@@ -2736,6 +2760,14 @@ void SeedChooserScreen::ProcessCoopClientEvent(const BaseEvent *event) {
         return;
     }
 
+    if (event->type == EventType::EVENT_CLIENT_SEEDCHOOSER_BUTTON_DEPRESS) {
+        const auto &buttonEvent = *static_cast<const U8U8_Event *>(event);
+        if (buttonEvent.data1 == SeedChooserScreen_BackToModeSelect && buttonEvent.data2 == 0) {
+            mBackToModeSelectRequested = true;
+        }
+        return;
+    }
+
     if (event->type == EventType::EVENT_CLIENT_SEEDCHOOSER_SELECT_SEED) {
         const auto &seedEvent = *static_cast<const U8x3_Event *>(event);
         if (!ApplyCoopSeedEvent(seedEvent, 1)) {
@@ -2757,7 +2789,7 @@ void SeedChooserScreen::ProcessCoopServerEvent(const BaseEvent *event) {
 
     if (event->type == EventType::EVENT_SERVER_SEEDCHOOSER_BUTTON_DEPRESS) {
         const auto &buttonEvent = *static_cast<const U8U8_Event *>(event);
-        if (buttonEvent.data1 == SeedChooserScreen_Start && buttonEvent.data2 == 0) {
+        if ((buttonEvent.data1 == SeedChooserScreen_Start || buttonEvent.data1 == SeedChooserScreen_BackToModeSelect) && buttonEvent.data2 == 0) {
             ButtonDepress_Origin(buttonEvent.data1);
         }
     }
@@ -3829,6 +3861,21 @@ void SeedChooserScreen::ButtonDepress(int theId) {
         return;
     }
 
+    if (mApp->IsCoopMode() && theId == SeedChooserScreen_BackToModeSelect) {
+        if (IsRemoteClient()) {
+            U8U8_Event event = {{EventType::EVENT_CLIENT_SEEDCHOOSER_BUTTON_DEPRESS}, uint8_t(theId), 0};
+            netplay::PutEvent(event);
+            mBackToModeSelectRequested = true;
+            return;
+        }
+        if (IsRemoteServer()) {
+            U8U8_Event event = {{EventType::EVENT_SERVER_SEEDCHOOSER_BUTTON_DEPRESS}, uint8_t(theId), 0};
+            netplay::PutEvent(event);
+        }
+        ButtonDepress_Origin(theId);
+        return;
+    }
+
     if (mApp->IsCoopMode() && IsOnlineModeActive() && theId == SeedChooserScreen_Start) {
         if (IsRemoteClient()) {
             return;
@@ -3851,6 +3898,10 @@ void SeedChooserScreen::ButtonDepress(int theId) {
 }
 
 void SeedChooserScreen::ButtonDepress_Origin(int theId) {
+    if (mApp->IsCoopMode() && theId == SeedChooserScreen_BackToModeSelect) {
+        mApp->ReturnToModeSelect();
+        return;
+    }
     if (mSeedsInFlight > 0 || mChooseState == SeedChooserState::CHOOSE_VIEW_LAWN || !mMouseVisible) {
         return;
     }
@@ -4911,6 +4962,12 @@ void SeedChooserScreen::Draw(Graphics *g) { // Early returns for dialogsif (mApp
     //            }
     //        }
     //    }
+
+    if (mBackToModeSelectRequested && !(gIsServerModeSpectator || gIsReplayMode) && (IsRemoteClient() || IsRemoteServer())) {
+        const pvzstl::string fmt = TodStringTranslate(IsRemoteClient() ? "[VS_TIP_REMIND_HOST_FMT]" : "[VS_TIP_OPPONENT_WANTS_GET_FMT]");
+        const pvzstl::string option = TodStringTranslate("[BACK_TO_MODE_SELECT]");
+        TodDrawString(g, StrFormat(fmt.c_str(), option.c_str()), 140, 620, Sexy::FONT_HOUSEOFTERROR28, Color(255, 255, 153), DS_ALIGN_LEFT);
+    }
 
     DrawTimedDraftCountdown(g);
     DeferOverlay(0);

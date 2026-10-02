@@ -46,6 +46,7 @@
 #include "PvZ/Lawn/Widget/ChallengeScreen.h"
 #include "PvZ/Lawn/Widget/ConfirmBackToMainDialog.h"
 #include "PvZ/Lawn/Widget/CreditScreen.h"
+#include "PvZ/Lawn/Widget/GameOverDialog.h"
 #include "PvZ/Lawn/Widget/HelpBarWidget.h"
 #include "PvZ/Lawn/Widget/HelpOptionsDialog.h"
 #include "PvZ/Lawn/Widget/HelpTextScreen.h"
@@ -451,6 +452,25 @@ void InitHookFunction() {
     homura::HookFunc(Zombie_UpdateAddr, &Zombie::Update, nullptr);
     homura::HookFunc(Zombie_UpdateActionsAddr, &Zombie::UpdateActions, &old_Zombie_UpdateActions);
     homura::HookFunc(Zombie_UpdatePlayingAddr, &Zombie::UpdatePlaying, nullptr);
+    homura::HookFunc(Zombie_UpdateBossAddr, &Zombie::UpdateBoss, nullptr);
+    homura::HookFunc(Zombie_UpdateBossFireballAddr, &Zombie::UpdateBossFireball, nullptr);
+    homura::HookFunc(Zombie_BossPlayIdleAddr, &Zombie::BossPlayIdle, nullptr);
+    homura::HookFunc(Zombie_BossBungeeAttackAddr, &Zombie::BossBungeeAttack, nullptr);
+    homura::HookFunc(Zombie_BossRVAttackAddr, &Zombie::BossRVAttack, nullptr);
+    homura::HookFunc(Zombie_BossStompAttackAddr, &Zombie::BossStompAttack, nullptr);
+    homura::HookFunc(Zombie_BossHeadAttackAddr, &Zombie::BossHeadAttack, nullptr);
+    homura::HookFunc(Zombie_BossSpawnContactAddr, &Zombie::BossSpawnContact, nullptr);
+    homura::HookFunc(Zombie_BossStompContactAddr, &Zombie::BossStompContact, nullptr);
+    homura::HookFunc(Zombie_BossBungeeSpawnAddr, &Zombie::BossBungeeSpawn, nullptr);
+    homura::HookFunc(Zombie_BossAreBungeesDoneAddr, &Zombie::BossAreBungeesDone, nullptr);
+    homura::HookFunc(Zombie_BossBungeeLeaveAddr, &Zombie::BossBungeeLeave, nullptr);
+    homura::HookFunc(Zombie_BossRVLandingAddr, &Zombie::BossRVLanding, nullptr);
+    homura::HookFunc(Zombie_BossHeadSpitAddr, &Zombie::BossHeadSpit, nullptr);
+    homura::HookFunc(Zombie_BossHeadSpitEffectAddr, &Zombie::BossHeadSpitEffect, nullptr);
+    homura::HookFunc(Zombie_BossHeadSpitContactAddr, &Zombie::BossHeadSpitContact, nullptr);
+    homura::HookFunc(Zombie_BossStartDeathAddr, &Zombie::BossStartDeath, nullptr);
+    homura::HookFunc(Zombie_BossDieAddr, &Zombie::BossDie, nullptr);
+    homura::HookFunc(Zombie_BossCanStompRowAddr, &Zombie::BossCanStompRow, nullptr);
     homura::HookFunc(Zombie_UpdateYetiAddr, &Zombie::UpdateYeti, nullptr);
     homura::HookFunc(Zombie_UpdateZombieFlyerAddr, &Zombie::UpdateZombieFlyer, nullptr);
     homura::HookFunc(Zombie_UpdateZombieImpAddr, &Zombie::UpdateZombieImp, nullptr);
@@ -664,7 +684,9 @@ void InitHookFunction() {
 
     homura::HookFunc(LawnMower_UpdateAddr, &LawnMower::Update, &old_LawnMower_Update);
     homura::HookFunc(LawnMower_StartMowerAddr, &LawnMower::StartMower, &old_LawnMower_StartMower);
+    homura::HookFunc(LawnMower_SquishMowerAddr, &LawnMower::SquishMower, nullptr);
     homura::HookFunc(ConfirmBackToMainDialog_ButtonDepressAddr, &ConfirmBackToMainDialog_ButtonDepress, &old_ConfirmBackToMainDialog_ButtonDepress);
+    homura::HookFunc(GameOverDialog_ButtonDepressAddr, &GameOverDialog::ButtonDepress, nullptr);
     homura::HookFunc(ConfirmBackToMainDialog_AddedToManagerAddr, &ConfirmBackToMainDialog_AddedToManager, &old_ConfirmBackToMainDialog_AddedToManager);
     homura::HookFunc(ConfirmBackToMainDialog_RemovedFromManagerAddr, &ConfirmBackToMainDialog_RemovedFromManager, &old_ConfirmBackToMainDialog_RemovedFromManager);
     // homura::HookFunc(FilterEffectDisposeForAppAddr, FilterEffectDisposeForApp, nullptr);

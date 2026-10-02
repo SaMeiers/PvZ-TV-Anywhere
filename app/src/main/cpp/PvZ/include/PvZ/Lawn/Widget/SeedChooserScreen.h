@@ -92,7 +92,8 @@ private:
         SeedChooserScreen_Menu = 104,
         SeedChooserScreen_Store = 105,
         SeedChooserScreen_Imitater = 106,
-        SeedChooserScreen_Page
+        SeedChooserScreen_Page,
+        SeedChooserScreen_BackToModeSelect
     };
 
 public:
@@ -161,6 +162,8 @@ public:
     int mTimedDraftTicksRemaining = 0;
     bool mTimedDraftWasActive = false;
     ReanimationID mReanimSeedChooser = ReanimationID::REANIMATIONID_NULL;
+    NewLawnButton *mBackToModeSelectButton = nullptr;
+    bool mBackToModeSelectRequested = false;
 
     SeedChooserScreen(bool theIsZombieChooser) {
         _constructor(theIsZombieChooser);

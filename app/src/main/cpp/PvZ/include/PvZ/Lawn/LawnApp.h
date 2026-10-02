@@ -576,6 +576,9 @@ public:
     Sexy::Dialog *ConfirmQuit() {
         return reinterpret_cast<Sexy::Dialog *(*)(LawnApp *)>(LawnApp_ConfirmQuitAddr)(this);
     }
+    void EndLevel() {
+        reinterpret_cast<void (*)(LawnApp *)>(LawnApp_EndLevelAddr)(this);
+    }
     void PostLeaveLevel() {
         reinterpret_cast<void (*)(LawnApp *)>(LawnApp_PostLeaveLevelAddr)(this);
     }
@@ -673,6 +676,10 @@ public:
     void KillChallengeScreen();
     void ShowVSSetupScreen();
     void PreNewGame(GameMode theGameMode, bool theLookForSavedGame);
+    void RetryOnlineGame(GameMode theGameMode);
+    void RequestGameOverExit();
+    void ExitGameOver();
+    void ReturnToModeSelect();
     void NewGame();
     bool HasBeatenChallenge(GameMode theGameMode) const;
     void ShowVSResultsScreen();

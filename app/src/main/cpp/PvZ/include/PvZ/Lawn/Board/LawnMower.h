@@ -49,6 +49,8 @@ public:
     int mLastPortalX;           //+0x40
 
     void StartMower();
+    void SquishMower();
+    void SquishMower_Origin();
     void Update();
 };
 

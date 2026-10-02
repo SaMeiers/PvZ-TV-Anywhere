@@ -1637,6 +1637,11 @@ void LawnApp::LoadingCompleted() {
 }
 
 bool LawnApp::TryLoadGame() {
+    // TODO: 适配结盟无尽的读档
+    if (IsOnlineModeActive()) {
+        return false;
+    }
+
     int aId = mPlayerInfo->GetVTable()->GetId(mPlayerInfo);
     int aProfileId = mPlayerInfo->GetVTable()->GetProfileId(mPlayerInfo);
     pvzstl::string name;
@@ -1654,6 +1659,49 @@ bool LawnApp::TryLoadGame() {
     return false;
 }
 
+void LawnApp::RetryOnlineGame(GameMode theGameMode) {
+    PostLeaveLevel();
+    KillDialog(Dialogs::DIALOG_GAME_OVER);
+    PreNewGame(theGameMode, false);
+}
+
+void LawnApp::RequestGameOverExit() {
+    if (!IsRemoteServer() || mBoard == nullptr || mGameScene != GameScenes::SCENE_ZOMBIES_WON) {
+        return;
+    }
+
+    BaseEvent event = {EventType::EVENT_SERVER_BOARD_GAMEOVER_EXIT};
+    netplay::PutEvent(event);
+    ExitGameOver();
+}
+
+void LawnApp::ExitGameOver() {
+    PostLeaveLevel();
+    KillDialog(Dialogs::DIALOG_GAME_OVER);
+    KillBoard();
+    if (IsSurvivalMode()) {
+        ShowChallengeScreen(ChallengePage::CHALLENGE_PAGE_SURVIVAL);
+    } else if (IsPuzzleMode()) {
+        ShowChallengeScreen(ChallengePage::CHALLENGE_PAGE_PUZZLE);
+    } else if (IsAdventureMode()) {
+        ShowGameSelector();
+    } else if (IsCoopMode()) {
+        ShowChallengeScreen(ChallengePage::CHALLENGE_PAGE_COOP);
+    } else {
+        ShowChallengeScreen(ChallengePage::CHALLENGE_PAGE_CHALLENGE);
+    }
+}
+
+void LawnApp::ReturnToModeSelect() {
+    const ChallengePage aPage = IsCoopMode() ? ChallengePage::CHALLENGE_PAGE_COOP : ChallengePage::CHALLENGE_PAGE_VS;
+    if (mVSSetupMenu != nullptr) {
+        mVSSetupMenu->CloseVSSetup(true);
+    }
+
+    KillBoard();
+    ShowChallengeScreen(aPage);
+}
+
 void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame) {
     // Best-effort flush queued outbound events before resetting recorder.
     if (gTcpClientSocket >= 0) {
@@ -1662,6 +1710,12 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame) {
         netplay::FlushSendBuffer(gTcpServerSocket);
     }
     replay::ResetRecorder();
+    if (IsOnlineModeActive()) {
+        PostEnterLevel();
+        mGameMode = theGameMode;
+        NewGame();
+        return;
+    }
     old_LawnApp_PreNewGame(this, theGameMode, theLookForSavedGame);
 }
 

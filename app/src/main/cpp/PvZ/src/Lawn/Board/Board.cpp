@@ -2053,6 +2053,11 @@ void Board::processClientEvent(const BaseEvent *event) {
                 PauseFromSecondPlayer(event1->data);
             }
         } break;
+        case EVENT_CLIENT_BOARD_GAMEOVER_EXIT: {
+            LawnApp *aApp = mApp;
+            aApp->RequestGameOverExit();
+            return;
+        }
         case EVENT_CLIENT_BOARD_CONCEDE: {
             mApp->KillNewOptionsDialog();
             mApp->KillDialog(DIALOG_CONFIRM_IN_GAME_RESTART);
@@ -3360,6 +3365,96 @@ void Board::processServerEvent(const BaseEvent *event) {
                 aZombie->TakeDamage_Origin(damage, damageFlags);
             }
         } break;
+        case EVENT_SERVER_BOARD_ZOMBIE_BOSS_RV_ATTACK:
+        case EVENT_SERVER_BOARD_ZOMBIE_BOSS_SPAWN_ATTACK:
+        case EVENT_SERVER_BOARD_ZOMBIE_BOSS_STOMP_ATTACK:
+        case EVENT_SERVER_BOARD_ZOMBIE_BOSS_BUNGEE_ATTACK:
+        case EVENT_SERVER_BOARD_ZOMBIE_BOSS_HEAD_ATTACK:
+        case EVENT_SERVER_BOARD_ZOMBIE_BOSS_HEAD_SPIT: {
+            auto *bossEvent = static_cast<const U16x4_Event *>(event);
+            uint16_t clientZombieID = 0;
+            if (homura::FindInMap(serverZombieIDMap, bossEvent->data[0], clientZombieID)) {
+                Zombie *aZombie = mZombies.DataArrayGet(clientZombieID);
+                aZombie->mBossMode = bossEvent->data[1];
+                switch (event->type) {
+                    case EVENT_SERVER_BOARD_ZOMBIE_BOSS_RV_ATTACK:
+                        aZombie->BossRVAttack_Origin(bossEvent->data[2], bossEvent->data[3]);
+                        break;
+                    case EVENT_SERVER_BOARD_ZOMBIE_BOSS_SPAWN_ATTACK:
+                        aZombie->BossSpawnAttack_Origin(bossEvent->data[2]);
+                        break;
+                    case EVENT_SERVER_BOARD_ZOMBIE_BOSS_STOMP_ATTACK:
+                        aZombie->BossStompAttack_Origin(bossEvent->data[2]);
+                        break;
+                    case EVENT_SERVER_BOARD_ZOMBIE_BOSS_BUNGEE_ATTACK:
+                        aZombie->BossBungeeAttack_Origin(bossEvent->data[3]);
+                        break;
+                    case EVENT_SERVER_BOARD_ZOMBIE_BOSS_HEAD_ATTACK:
+                        aZombie->BossHeadAttack_Origin();
+                        break;
+                    case EVENT_SERVER_BOARD_ZOMBIE_BOSS_HEAD_SPIT:
+                        aZombie->BossHeadSpit_Origin(bossEvent->data[2], bossEvent->data[3]);
+                        break;
+                    default:
+                        break;
+                }
+            }
+        } break;
+        case EVENT_SERVER_BOARD_ZOMBIE_BOSS_PLAY_IDLE:
+        case EVENT_SERVER_BOARD_ZOMBIE_BOSS_RV_LANDING:
+        case EVENT_SERVER_BOARD_ZOMBIE_BOSS_STOMP_CONTACT:
+        case EVENT_SERVER_BOARD_ZOMBIE_BOSS_BUNGEE_LEAVE:
+        case EVENT_SERVER_BOARD_ZOMBIE_BOSS_HEAD_SPIT_EFFECT:
+        case EVENT_SERVER_BOARD_ZOMBIE_BOSS_HEAD_SPIT_CONTACT:
+        case EVENT_SERVER_BOARD_ZOMBIE_BOSS_START_DEATH: {
+            auto *bossEvent = static_cast<const U16_Event *>(event);
+            uint16_t clientZombieID = 0;
+            if (homura::FindInMap(serverZombieIDMap, bossEvent->data, clientZombieID)) {
+                Zombie *aZombie = mZombies.DataArrayGet(clientZombieID);
+                switch (event->type) {
+                    case EVENT_SERVER_BOARD_ZOMBIE_BOSS_PLAY_IDLE:
+                        aZombie->BossPlayIdle_Origin();
+                        break;
+                    case EVENT_SERVER_BOARD_ZOMBIE_BOSS_RV_LANDING:
+                        aZombie->BossRVLanding_Origin();
+                        break;
+                    case EVENT_SERVER_BOARD_ZOMBIE_BOSS_STOMP_CONTACT:
+                        aZombie->BossStompContact_Origin();
+                        break;
+                    case EVENT_SERVER_BOARD_ZOMBIE_BOSS_BUNGEE_LEAVE:
+                        aZombie->BossBungeeLeave_Origin();
+                        break;
+                    case EVENT_SERVER_BOARD_ZOMBIE_BOSS_HEAD_SPIT_EFFECT:
+                        aZombie->BossHeadSpitEffect_Origin();
+                        break;
+                    case EVENT_SERVER_BOARD_ZOMBIE_BOSS_HEAD_SPIT_CONTACT:
+                        aZombie->BossHeadSpitContact_Origin();
+                        break;
+                    case EVENT_SERVER_BOARD_ZOMBIE_BOSS_START_DEATH:
+                        aZombie->BossStartDeath_Origin();
+                        break;
+                    default:
+                        break;
+                }
+            }
+        } break;
+        case EVENT_SERVER_BOARD_ZOMBIE_BOSS_BUNGEE_SPAWN: {
+            auto *bossEvent = static_cast<const U16x4_Event *>(event);
+            uint16_t clientZombieID = 0;
+            if (homura::FindInMap(serverZombieIDMap, bossEvent->data[0], clientZombieID)) {
+                Zombie *aZombie = mZombies.DataArrayGet(clientZombieID);
+                aZombie->mZombiePhase = ZombiePhase::PHASE_BOSS_BUNGEES_DROP;
+                for (int i = 0; i < NUM_BOSS_BUNGEES; ++i) {
+                    uint16_t clientFollowerID = 0;
+                    if (bossEvent->data[i + 1] != NETPLAY_ZOMBIE_ID_NULL && homura::FindInMap(serverZombieIDMap, bossEvent->data[i + 1], clientFollowerID)) {
+                        // ZombieTryToGet needs the full generation ID, not the network slot.
+                        aZombie->mFollowerZombieID[i] = ZombieID(mZombies.DataArrayGetID(mZombies.DataArrayGet(clientFollowerID)));
+                    } else {
+                        aZombie->mFollowerZombieID[i] = ZombieID::ZOMBIEID_NULL;
+                    }
+                }
+            }
+        } break;
         case EVENT_SERVER_BOARD_ZOMBIE_TAKE_HELM_DAMAGE:
         case EVENT_SERVER_BOARD_ZOMBIE_TAKE_SHIELD_DAMAGE: {
             auto *eventArmorDamage = static_cast<const U16U16U8_Event *>(event);
@@ -3409,6 +3504,15 @@ void Board::processServerEvent(const BaseEvent *event) {
                 }
             }
         } break;
+        case EVENT_SERVER_BOARD_LAWNMOWER_SQUISH: {
+            const auto *eventLawnMowerSquish = static_cast<const U16_Event *>(event);
+            LawnMower *aLawnMower = nullptr;
+            while (IterateLawnMowers(aLawnMower)) {
+                if (aLawnMower->mRow == eventLawnMowerSquish->data) {
+                    aLawnMower->SquishMower_Origin();
+                }
+            }
+        } break;
         case EVENT_SERVER_BOARD_TAKE_SUNMONEY: {
             if (event->size == sizeof(I16I16_Event)) {
                 const auto *eventTakeSunMoneyCoop = static_cast<const I16I16_Event *>(event);
@@ -3454,6 +3558,16 @@ void Board::processServerEvent(const BaseEvent *event) {
                         }
                     }
                 } break;
+                case 2: // Zombie placed before StartLevel (currently the boss).
+                {
+                    Zombie *aZombie = nullptr;
+                    while (IterateZombies(aZombie)) {
+                        if (aZombie->mZombieType == eventSync->data2.u8x4.u8_2 && aZombie->mRow == eventSync->data2.u8x4.u8_3 && aZombie->mFromWave == int8_t(eventSync->data2.u8x4.u8_4)) {
+                            serverZombieIDMap[eventSync->data1] = uint16_t(mZombies.DataArrayGetID(aZombie));
+                            break;
+                        }
+                    }
+                } break;
                 default:
                     break;
             }
@@ -3469,6 +3583,19 @@ void Board::processServerEvent(const BaseEvent *event) {
             serverGridItemIDMap.clear();
 
         } break;
+        case EVENT_SERVER_BOARD_GAMEOVER_EXIT: {
+            LawnApp *aApp = mApp;
+            aApp->ExitGameOver();
+            return;
+        }
+        case EVENT_SERVER_BOARD_RETRY: {
+            const auto *retryEvent = static_cast<const U16_Event *>(event);
+            LawnApp *aApp = mApp;
+            const GameMode aGameMode = GameMode(retryEvent->data);
+            aApp->RetryOnlineGame(aGameMode);
+            // Retry replaces the board, so do not access this object afterwards.
+            return;
+        }
         case EVENT_SERVER_BOARD_CONCEDE: {
             mApp->mMusic->StopAllMusic();
             mApp->mSoundSystem->CancelPausedFoley();
@@ -6571,6 +6698,19 @@ void Board::StartLevel() {
 
         BaseEvent nineShortDataEvent = {EventType::EVENT_SERVER_BOARD_START_LEVEL};
         netplay::PutEvent(nineShortDataEvent);
+        // The boss is created during the intro, so it has no playing-scene ZOMBIE_ADD event.
+        // Rebind its ID after START_LEVEL clears the client map and before any boss skill event.
+        Zombie *aBoss = GetBossZombie();
+        if (aBoss != nullptr) {
+            U16UNI32_Event eventSync{};
+            eventSync.type = EventType::EVENT_SERVER_BOARD_SYNC_ID;
+            eventSync.data1 = uint16_t(mZombies.DataArrayGetID(aBoss));
+            eventSync.data2.u8x4.u8_1 = 2; // Zombie
+            eventSync.data2.u8x4.u8_2 = uint8_t(aBoss->mZombieType);
+            eventSync.data2.u8x4.u8_3 = uint8_t(aBoss->mRow);
+            eventSync.data2.u8x4.u8_4 = uint8_t(aBoss->mFromWave);
+            netplay::PutEvent(eventSync);
+        }
         GridItem *gridItem = nullptr;
         while (IterateGridItems(gridItem)) {
 
