@@ -145,14 +145,14 @@ IncludeCategories:
   - Regex: '^"'
     Priority: 2
   - Regex: '<(assert|complex|ctype|errno|fenv|float|inttypes|iso646|limits|locale|math|setjmp|signal|stdalign|stdarg|stdatomic|stdbool|stddef|stdint|stdio|stdlib|string|tgmath|time|uchar|wchar|wctype)\.h>'
-    Priority: 5
+    Priority: 4
   - Regex: '<c(assert|complex|ctype|errno|fenv|float|inttypes|iso646|limits|locale|math|setjmp|signal|stdalign|stdarg|stdbool|stddef|stdint|stdio|stdlib|string|tgmath|time|uchar|wchar|wctype)>'
     Priority: 5
   - Regex: '<.*\.(h|H|hpp|hh|h\+\+|hxx)>'
     Priority: 3
   # C++ standard library
   - Regex: '^<'
-    Priority: 4
+    Priority: 6
 
 # 缩进 case 标签
 IndentCaseLabels: true
