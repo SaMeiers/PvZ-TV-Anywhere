@@ -1273,6 +1273,9 @@ void GamepadControls::OnButtonDown(Sexy::GamepadButton theButton, int thePlayerI
         }
 
         if (aPacketType == SeedType::SEED_ZOMBIE_GRAVESTONE) {
+            if (IsRemoteClientOrViewer()) {
+                return;
+            }
             if (mBoard->CanAddGraveStoneAt(aGridX, aGridY) && mBoard->TakeDeathMoney(aPacketCost)) {
                 GridItem *aGraveStone = mBoard->AddAGraveStone(aGridX, aGridY);
                 aGraveStone->mIsSpecialGrave = false;

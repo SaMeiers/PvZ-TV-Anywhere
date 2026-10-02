@@ -184,6 +184,7 @@ void InitHookFunction() {
     homura::HookFunc(Board_GetSeedPacketPositionXAddr, &Board::GetSeedPacketPositionX, nullptr);
     homura::HookFunc(Board_AddCoinAddr, &Board::AddCoin, &old_Board_AddCoin);
     homura::HookFunc(Board_AddAGraveStoneAddr, &Board::AddAGraveStone, &old_Board_AddAGraveStone);
+    homura::HookFunc(Board_PlaceRakeAddr, &Board::PlaceRake, nullptr);
     homura::HookFunc(Board_TakeSunMoneyAddr, &Board::TakeSunMoney, &old_Board_TakeSunMoney);
     homura::HookFunc(Board_TakeDeathMoneyAddr, &Board::TakeDeathMoney, &old_Board_TakeDeathMoney);
     homura::HookFunc(Board_SpawnZombiesFromGravesAddr, &Board::SpawnZombiesFromGraves, nullptr);
@@ -255,6 +256,7 @@ void InitHookFunction() {
     homura::HookFunc(Coin_UpdateFallAddr, &Coin::UpdateFall, &old_Coin_UpdateFall);
     homura::HookFunc(Coin_DrawAddr, &Coin::Draw, nullptr);
     homura::HookFunc(Coin_PlayCollectSoundAddr, &Coin::PlayCollectSound, nullptr);
+    homura::HookFunc(Coin_FanOutCoinsAddr, &Coin::FanOutCoins, &old_Coin_FanOutCoins);
     homura::HookFunc(Coin_ScoreCoinAddr, &Coin::ScoreCoin, nullptr);
     homura::HookFunc(Coin_UpdateCollectedAddr, &Coin::UpdateCollected, nullptr);
     homura::HookFunc(Coin_IsSunAddr, &Coin::IsSun, nullptr);
@@ -393,6 +395,7 @@ void InitHookFunction() {
     homura::HookFunc(Plant_FindTargetGridItemAddr, &Plant::FindTargetGridItem, nullptr);
     homura::HookFunc(Plant_GetCostAddr, &Plant::GetCost, &old_Plant_GetCost);
     homura::HookFunc(Plant_DieAddr, &Plant::Die, nullptr);
+    homura::HookFunc(Plant_ImitaterMorphAddr, &Plant::ImitaterMorph, nullptr);
     homura::HookFunc(GetPlantDefinitionAddr, &GetPlantDefinition, nullptr);
     homura::HookFunc(Plant_PlayBodyReanimAddr, &Plant::PlayBodyReanim, &old_Plant_PlayBodyReanim);
     homura::HookFunc(Plant_UpdateProductionPlantAddr, &Plant::UpdateProductionPlant, &old_Plant_UpdateProductionPlant);

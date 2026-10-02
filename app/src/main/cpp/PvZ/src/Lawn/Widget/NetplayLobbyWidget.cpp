@@ -71,6 +71,33 @@ constexpr int kRoomActionY = 545;
 constexpr int kRoomActionWidth = 190;
 constexpr int kRoomActionHeight = 45;
 constexpr int kRoomActionGap = 15;
+constexpr uint16_t kCoopLanProtocolFlag = 1 << 15;
+constexpr std::string_view kVsRoomNamePrefix = "[VS]";
+constexpr std::string_view kCoopRoomNamePrefix = "[COOP]";
+
+bool RoomNameHasPrefix(std::string_view roomName, std::string_view prefix) {
+    return roomName.size() >= prefix.size() && roomName.substr(0, prefix.size()) == prefix;
+}
+
+uint16_t GetLanRoomProtocol(bool isCoopLobby) {
+    return uint16_t(NETPLAY_VERSION) | (isCoopLobby ? kCoopLanProtocolFlag : 0);
+}
+
+bool GetServerRoomDisplayName(std::string_view wireName, bool isCoopLobby, std::string_view &displayName) {
+    const bool isCoopRoom = RoomNameHasPrefix(wireName, kCoopRoomNamePrefix);
+    if (isCoopRoom != isCoopLobby) {
+        return false;
+    }
+
+    if (isCoopRoom) {
+        displayName = wireName.substr(kCoopRoomNamePrefix.size());
+    } else if (RoomNameHasPrefix(wireName, kVsRoomNamePrefix)) {
+        displayName = wireName.substr(kVsRoomNamePrefix.size());
+    } else {
+        displayName = wireName;
+    }
+    return true;
+}
 
 void DrawPanel(Graphics *g, const Rect &rect) {
     g->SetColor(Color(66, 36, 20, 210));
@@ -247,7 +274,7 @@ NetplayLobbyWidget *NetplayLobbyWidget::GetInstance() {
     return gInstance;
 }
 
-NetplayLobbyWidget::NetplayLobbyWidget(LawnApp *app) {
+NetplayLobbyWidget::NetplayLobbyWidget(LawnApp *app, bool isCoopLobby) {
     Widget::_constructor();
     static void *sVTable[122];
     static std::once_flag sVTableInit;
@@ -272,6 +299,7 @@ NetplayLobbyWidget::NetplayLobbyWidget(LawnApp *app) {
     mClip = true;
     mSelectedServerListIndex = 0;
     mZombieBackground = Rand(2);
+    mIsCoopLobby = isCoopLobby;
 
     mRoomScrollWidget = new ScrollWidget();
     mRoomScrollWidget->Resize(kRoomScrollX, kRoomScrollY, kRoomScrollWidth, kRoomScrollHeight);
@@ -556,7 +584,9 @@ void NetplayLobbyWidget::Draw(Graphics *g) {
         g->FillRect(Rect(kRoomScrollbarX + 1, thumbY + 1, kRoomScrollbarWidth - 2, thumbHeight - 2));
     }
 
-    TodDrawString(g, "[NETPLAY_LOBBY_TITLE]", mWidth / 2, 115, addonFonts.JN_BOBO_HEI36, Color(255, 248, 195), DS_ALIGN_CENTER);
+    const pvzstl::string lobbyModeTitle = TodStringTranslate(mIsCoopLobby ? "[XBOX_COOP]" : "[VS]");
+    const pvzstl::string lobbyTitle = StrFormat("%s - %s", lobbyModeTitle.c_str(), TodStringTranslate("[NETPLAY_LOBBY_TITLE]").c_str());
+    TodDrawString(g, lobbyTitle, mWidth / 2, 115, addonFonts.JN_BOBO_HEI36, Color(255, 248, 195), DS_ALIGN_CENTER);
     TodDrawString(g, "[MODE_SERVER_TITLE]", kLeftPanelX + kLeftPanelWidth / 2, 170 + kPanelYOffset, FONT_DWARVENTODCRAFT18, Color(255, 226, 154), DS_ALIGN_CENTER);
     TodDrawString(g, "[AVAILABLE_ROOMS]", kRightPanelX + kRightPanelWidth / 2, 170 + kPanelYOffset, FONT_DWARVENTODCRAFT18, Color(255, 226, 154), DS_ALIGN_CENTER);
 
@@ -576,8 +606,10 @@ void NetplayLobbyWidget::Draw(Graphics *g) {
         g->DrawRect(Rect(kLeftPanelX + 18, y - 30, kLeftPanelWidth - 36, 45));
 
         pvzstl::string label;
+        Font *font = FONT_HOUSEOFTERROR16;
         if (i == 0) {
-            label = TodStringTranslate("[WIFI_VS]");
+            label = TodStringTranslate("[LAN_MULTIPLAYER]");
+            font = addonFonts.JN_BOBO_HEI24;
         } else {
             char address[32]{};
             GetLobbyServerTargetAddress(i - 1, address, sizeof(address));
@@ -587,7 +619,7 @@ void NetplayLobbyWidget::Draw(Graphics *g) {
                 label = StrFormat(TodStringTranslate("[CUSTOM_SERVER_NAME]").c_str(), i - 2, address);
             }
         }
-        TodDrawString(g, label, kLeftPanelX + kLeftPanelWidth / 2, y, FONT_HOUSEOFTERROR16, selected ? Color(185, 255, 105) : Color(255, 238, 195), DS_ALIGN_CENTER);
+        TodDrawString(g, label, kLeftPanelX + kLeftPanelWidth / 2, y, font, selected ? Color(185, 255, 105) : Color(255, 238, 195), DS_ALIGN_CENTER);
     }
 
     if (mSelectedServerListIndex > 0 && mSelectedServerListIndex <= targetCount) {
@@ -1475,6 +1507,13 @@ void NetplayLobbyWidget::ServerUpdateIO() {
                     if (off + nameLen > (int)len)
                         break;
 
+                    const std::string_view wireRoomName(reinterpret_cast<const char *>(payload + off), nameLen);
+                    off += nameLen;
+                    std::string_view displayRoomName;
+                    if (!GetServerRoomDisplayName(wireRoomName, this->mIsCoopLobby, displayRoomName)) {
+                        continue;
+                    }
+
                     ServerRoomItem &it = this->mServerRooms[this->mServerRoomCount++];
                     it.roomId = id;
                     it.protocolVersion = version;
@@ -1485,11 +1524,10 @@ void NetplayLobbyWidget::ServerUpdateIO() {
                     it.spectateAllowed = (flags & 16) != 0;
                     it.forceRelay = (flags & 32) != 0;
                     std::memset(it.name, 0, sizeof(it.name));
-                    int cp = nameLen;
+                    int cp = (int)displayRoomName.size();
                     if (cp > (int)sizeof(it.name) - 1)
                         cp = (int)sizeof(it.name) - 1;
-                    std::memcpy(it.name, payload + off, cp);
-                    off += nameLen;
+                    std::memcpy(it.name, displayRoomName.data(), cp);
 
                     const bool inCurrentHostRoom = this->mServerHosting && id == this->mServerHostedRoomId;
                     const bool inCurrentGuestRoom = (this->mServerJoined || this->mServerSpectating) && id == this->mServerJoinedRoomId;
@@ -1562,10 +1600,15 @@ void NetplayLobbyWidget::ServerUpdateIO() {
                     this->mServerSpectateReserveWarnTick = 0;
                     this->mServerHostedRoomName[0] = '\0';
                     if (hostNameValid) {
-                        int copyLen = hostNameLen;
+                        const std::string_view wireHostName(reinterpret_cast<const char *>(payload + 10), hostNameLen);
+                        std::string_view displayHostName;
+                        if (!GetServerRoomDisplayName(wireHostName, this->mIsCoopLobby, displayHostName)) {
+                            displayHostName = wireHostName;
+                        }
+                        int copyLen = (int)displayHostName.size();
                         if (copyLen > (int)sizeof(this->mServerJoinedRoomName) - 1)
                             copyLen = (int)sizeof(this->mServerJoinedRoomName) - 1;
-                        std::memcpy(this->mServerJoinedRoomName, payload + 10, copyLen);
+                        std::memcpy(this->mServerJoinedRoomName, displayHostName.data(), copyLen);
                         this->mServerJoinedRoomName[copyLen] = '\0';
                     }
                     if (this->mServerJoined) {
@@ -2525,8 +2568,9 @@ void NetplayLobbyWidget::ServerSendCreate() {
     if (!this->mApp || !this->mApp->mPlayerInfo || !this->mApp->mPlayerInfo->mName)
         return;
 
-    const char *name = this->mApp->mPlayerInfo->mName;
-    int nlen = (int)std::strlen(name);
+    std::string wireName = this->mIsCoopLobby ? std::string(kCoopRoomNamePrefix) : std::string(kVsRoomNamePrefix);
+    wireName += this->mApp->mPlayerInfo->mName;
+    int nlen = (int)wireName.size();
     if (nlen > 255)
         nlen = 255;
 
@@ -2543,7 +2587,7 @@ void NetplayLobbyWidget::ServerSendCreate() {
         this->mServerStatusText = TodStringTranslate("[STATUS_SEND_CREATE_FAIL]");
         return;
     }
-    if (nlen > 0 && !SendAll(this->mServerSock, name, (size_t)nlen)) {
+    if (nlen > 0 && !SendAll(this->mServerSock, wireName.data(), (size_t)nlen)) {
         this->mServerCreatePending = false;
         this->mServerStatusText = TodStringTranslate("[STATUS_SEND_CREATE_FAIL]");
         return;
@@ -3558,13 +3602,14 @@ void NetplayLobbyWidget::ProcessServerEvent(const BaseEvent *event) {
     switch (event->type) {
         case EVENT_SERVER_WAITFORSECONDPALYER_VERSION_CHECK: {
             auto *event1 = static_cast<const U16_Event *>(event);
-            if (event1->data != NETPLAY_VERSION) {
+            const uint16_t expectedProtocol = GetLanRoomProtocol(this->mIsCoopLobby);
+            if (event1->data != expectedProtocol) {
                 LOG_ERROR("Room Version Mismatch!");
                 // 弹出提示并断开连接
                 LeaveRoom();
                 InitUdpScanSocket();
                 this->mApp->LawnMessageBox(
-                    Dialogs::DIALOG_MESSAGE, "[VERSION_ERROR_TITLE]", event1->data > NETPLAY_VERSION ? "[VERSION_ERROR_HIGN_DESC]" : "[VERSION_ERROR_LOW_DESC]", "[DIALOG_BUTTON_OK]", "", 3);
+                    Dialogs::DIALOG_MESSAGE, "[VERSION_ERROR_TITLE]", event1->data > expectedProtocol ? "[VERSION_ERROR_HIGN_DESC]" : "[VERSION_ERROR_LOW_DESC]", "[DIALOG_BUTTON_OK]", "", 3);
             } else {
                 CHARx32_Event nameEvent{};
                 nameEvent.type = EVENT_CLIENT_WAITFORSECONDPALYER_PLAYER_NAME;
@@ -3881,14 +3926,15 @@ void NetplayLobbyWidget::UdpBroadcastRoom() {
 
     if (gTcpPort != 0) {
         size_t msg_len = strlen(message) + 1; // 含 '�'
-        size_t total_len = msg_len + sizeof(gTcpPort);
+        size_t total_len = msg_len + sizeof(gTcpPort) + 1;
 
-        char send_buf[256];
+        char send_buf[NAME_LENGTH + sizeof(gTcpPort) + 1];
         if (total_len > sizeof(send_buf))
             return; // 防止溢出
 
         memcpy(send_buf, message, msg_len);
         memcpy(send_buf + msg_len, &gTcpPort, sizeof(gTcpPort));
+        send_buf[msg_len + sizeof(gTcpPort)] = this->mIsCoopLobby ? 1 : 0;
 
         bool sent_any = false;
         if (!gBroadcastTargets.empty()) {
@@ -3956,7 +4002,7 @@ bool NetplayLobbyWidget::CheckTcpAccept() {
     LOG_DEBUG("[TCP] Client connected: {}", ip);
 
     // 检查version
-    U16_Event event = {{EVENT_SERVER_WAITFORSECONDPALYER_VERSION_CHECK}, NETPLAY_VERSION};
+    U16_Event event = {{EVENT_SERVER_WAITFORSECONDPALYER_VERSION_CHECK}, GetLanRoomProtocol(this->mIsCoopLobby)};
     netplay::PutEvent(event);
     return true;
 }
@@ -3965,7 +4011,7 @@ void NetplayLobbyWidget::ScanUdpBroadcastRoom() {
     gLastBroadcastTime = 0;
     sockaddr_in recv_addr{};
     socklen_t addr_len = sizeof(recv_addr);
-    char buffer[NAME_LENGTH + sizeof(int)] = {0};
+    char buffer[NAME_LENGTH + sizeof(int) + 1] = {0};
 
     // 循环读取所有可用包
     while (true) {
@@ -3980,6 +4026,9 @@ void NetplayLobbyWidget::ScanUdpBroadcastRoom() {
 
             int tcpPort = 0;
             memcpy(&tcpPort, buffer + msg_len, sizeof(tcpPort));
+            const bool roomIsCoop = n >= (ssize_t)(msg_len + sizeof(int) + 1) && buffer[msg_len + sizeof(int)] != 0;
+            if (roomIsCoop != this->mIsCoopLobby)
+                continue;
 
             char serverIp[INET_ADDRSTRLEN];
             inet_ntop(AF_INET, &recv_addr.sin_addr, serverIp, sizeof(serverIp));

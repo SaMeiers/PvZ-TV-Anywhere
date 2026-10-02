@@ -25,6 +25,7 @@
 #include "PvZ/Lawn/Board/Board.h"
 #include "PvZ/Lawn/Board/Challenge.h"
 #include "PvZ/Lawn/Board/CutScene.h"
+#include "PvZ/Lawn/GamepadControls.h"
 #include "PvZ/Lawn/System/Music.h"
 #include "PvZ/Lawn/System/SaveGame.h"
 #include "PvZ/Lawn/System/TypingCheck.h"
@@ -473,6 +474,12 @@ void LawnApp::OnSessionTaskFailed() {
 int LawnApp::GamepadToPlayerIndex(unsigned int thePlayerIndex) const {
     // 实现双人结盟中1P选卡选满后自动切换为2P选卡DoConfirmBackToMain
     if (IsCoopMode()) {
+        if (IsRemoteClient()) {
+            return 1;
+        }
+        if (IsRemoteServer()) {
+            return 0;
+        }
         return !m1PChoosingSeeds;
     }
 
@@ -529,6 +536,8 @@ void LawnApp::HandleTcpClientMessage(const std::byte *buf, size_t bufSize) {
         } else if (event->type >= EVENT_SERVER_VSSETUPMENU_BUTTON_DEPRESS && event->type < NUM_EVENT_VSSETUPMENU) {
             if (mVSSetupMenu != nullptr) {
                 mVSSetupMenu->processClientEvent(event);
+            } else if (IsCoopMode() && mSeedChooserScreen != nullptr) {
+                mSeedChooserScreen->ProcessCoopClientEvent(event);
             }
         } else if (event->type >= EVENT_CLIENT_VSRESULT_BUTTON_DEPRESS && event->type < NUM_EVENT_VSRESULT) {
             if (mVSResultsMenu != nullptr) {
@@ -641,6 +650,8 @@ void LawnApp::HandleTcpServerMessage(const std::byte *buf, size_t bufSize) {
                 } else {
                     mVSSetupMenu->processServerEvent(event);
                 }
+            } else if (IsCoopMode() && mSeedChooserScreen != nullptr) {
+                mSeedChooserScreen->ProcessCoopServerEvent(event);
             }
         } else if (event->type >= EVENT_SERVER_WAITFORSECONDPALYER_VERSION_CHECK && event->type < NUM_EVENT_WAITFORSECONDPALYER) {
             if (waitDialog != nullptr) {
@@ -1512,7 +1523,7 @@ bool LawnApp::IsFinalBossLevel() const {
     if (mBoard == nullptr)
         return false;
 
-    if (mGameMode == GameMode::GAMEMODE_CHALLENGE_FINAL_BOSS)
+    if (mGameMode == GameMode::GAMEMODE_CHALLENGE_FINAL_BOSS || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS)
         return true;
 
     return IsAdventureMode() && mPlayerInfo->mLevel == 50;
@@ -1658,6 +1669,12 @@ void LawnApp::NewGame() {
     mFirstTimeGameSelector = false;
 
     MakeNewBoard();
+
+    if (IsCoopMode() && IsOnlineModeActive()) {
+        SetSecondPlayer(1);
+        mBoard->mGamepadControls[1]->mGamepadIndex = 1;
+    }
+
     mBoard->InitLevel();
     mBoardResult = BoardResult::BOARDRESULT_NONE;
     mGameScene = GameScenes::SCENE_LEVEL_INTRO;

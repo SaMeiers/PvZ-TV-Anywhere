@@ -54,6 +54,75 @@ bool IsValidVsMode(int mode) {
     }
 }
 
+bool IsValidCoopMode(int mode) {
+    return mode >= GAMEMODE_TWO_PLAYER_COOP_DAY && mode <= GAMEMODE_TWO_PLAYER_COOP_ENDLESS;
+}
+
+bool IsNetplayChallengePage(ChallengePage page) {
+    return page == ChallengePage::CHALLENGE_PAGE_VS || page == ChallengePage::CHALLENGE_PAGE_COOP;
+}
+
+bool IsValidModeForPage(ChallengePage page, int mode) {
+    return page == ChallengePage::CHALLENGE_PAGE_VS ? IsValidVsMode(mode) : page == ChallengePage::CHALLENGE_PAGE_COOP ? IsValidCoopMode(mode) : false;
+}
+
+// ChallengeScreen stores indices into gChallengeDefs. Normal challenge modes
+// start at enum value 2, while the custom VS IDs already match their indices.
+int SelectionToNetplayMode(ChallengePage page, int selection) {
+    return page == ChallengePage::CHALLENGE_PAGE_COOP ? selection + 2 : selection;
+}
+
+int NetplayModeToSelection(ChallengePage page, int mode) {
+    return page == ChallengePage::CHALLENGE_PAGE_COOP ? mode - 2 : mode;
+}
+
+pvzstl::string GetNetplayModeName(int mode) {
+    switch (mode) {
+        case GAMEMODE_MP_VS_DAY:
+            return TodStringTranslate("[MP_VS_DAY]");
+        case GAMEMODE_MP_VS_NIGHT:
+            return TodStringTranslate("[MP_VS_NIGHT]");
+        case GAMEMODE_MP_VS_POOL_DAY:
+            return TodStringTranslate("[MP_VS_POOL_DAY]");
+        case GAMEMODE_MP_VS_POOL_NIGHT:
+            return TodStringTranslate("[MP_VS_POOL_NIGHT]");
+        case GAMEMODE_MP_VS_ROOF:
+            return TodStringTranslate("[MP_VS_ROOF]");
+        case GAMEMODE_MP_VS_SHUFFLE_MODE:
+            return TodStringTranslate("[MP_VS_SHUFFLE_MODE]");
+        default:
+            break;
+    }
+
+    switch (mode) {
+        case GAMEMODE_TWO_PLAYER_COOP_DAY:
+            return TodStringTranslate("[COOP_1]");
+        case GAMEMODE_TWO_PLAYER_COOP_NIGHT:
+            return TodStringTranslate("[COOP_2]");
+        case GAMEMODE_TWO_PLAYER_COOP_POOL:
+            return TodStringTranslate("[COOP_3]");
+        case GAMEMODE_TWO_PLAYER_COOP_ROOF:
+            return TodStringTranslate("[COOP_4]");
+        case GAMEMODE_TWO_PLAYER_COOP_BOWLING:
+            return TodStringTranslate("[COOP_BOWLING]");
+        case GAMEMODE_TWO_PLAYER_COOP_DAY_HARD:
+            return TodStringTranslate("[COOP_HARD_1]");
+        case GAMEMODE_TWO_PLAYER_COOP_NIGHT_HARD:
+            return TodStringTranslate("[COOP_HARD_2]");
+        case GAMEMODE_TWO_PLAYER_COOP_POOL_HARD:
+            return TodStringTranslate("[COOP_HARD_3]");
+        case GAMEMODE_TWO_PLAYER_COOP_ROOF_HARD:
+            return TodStringTranslate("[COOP_HARD_4]");
+        case GAMEMODE_TWO_PLAYER_COOP_BOSS:
+            return TodStringTranslate("[COOP_FINAL_BOSS]");
+        case GAMEMODE_TWO_PLAYER_COOP_ENDLESS:
+            return TodStringTranslate("[COOP_ENDLESS]");
+        default:
+            break;
+    }
+    return "unknown";
+}
+
 bool gNetplayLobbyFinished = false;
 } // namespace
 
@@ -265,13 +334,16 @@ void ChallengeScreen::_constructor(LawnApp *theApp, ChallengePage thePage) {
     if (mPage == ChallengePage::CHALLENGE_PAGE_VS) {
         mPageChallengeCount = NUM_VS_MODES - 1;
         Challenge::msVSShuffleMode = false;
-        gChallengeScreenRequestState = 0;
 
         mApp->TryHelpTextScreen(HelpTextPage::HELP_TEXT_PAGE_VS);
     }
 
     if (mPage == ChallengePage::CHALLENGE_PAGE_COOP) {
         mApp->TryHelpTextScreen(HelpTextPage::HELP_TEXT_PAGE_COOP);
+    }
+
+    if (IsNetplayChallengePage(mPage)) {
+        gChallengeScreenRequestState = 0;
     }
 }
 
@@ -387,7 +459,7 @@ void ChallengeScreen::Draw(Sexy::Graphics *g) {
     g->PopState();
 
 
-    if (mPage == CHALLENGE_PAGE_VS) {
+    if (IsNetplayChallengePage(mPage)) {
 
         Color aColor = Color(0, 205, 0, 255);
 
@@ -432,30 +504,7 @@ void ChallengeScreen::Draw(Sexy::Graphics *g) {
 
             if (IsRemoteClient()) {
                 pvzstl::string fmt = TodStringTranslate("[CHALLENGESCREEN_TIP_REMIND_HOST_FMT]");
-                pvzstl::string name = "unknown";
-
-                switch (gChallengeScreenRequestState) {
-                    case GAMEMODE_MP_VS_DAY:
-                        name = TodStringTranslate("[MP_VS_DAY]");
-                        break;
-                    case GAMEMODE_MP_VS_NIGHT:
-                        name = TodStringTranslate("[MP_VS_NIGHT]");
-                        break;
-                    case GAMEMODE_MP_VS_POOL_DAY:
-                        name = TodStringTranslate("[MP_VS_POOL_DAY]");
-                        break;
-                    case GAMEMODE_MP_VS_POOL_NIGHT:
-                        name = TodStringTranslate("[MP_VS_POOL_NIGHT]");
-                        break;
-                    case GAMEMODE_MP_VS_ROOF:
-                        name = TodStringTranslate("[MP_VS_ROOF]");
-                        break;
-                    case GAMEMODE_MP_VS_SHUFFLE_MODE:
-                        name = TodStringTranslate("[MP_VS_SHUFFLE_MODE]");
-                        break;
-                    default:
-                        break;
-                }
+                pvzstl::string name = GetNetplayModeName(gChallengeScreenRequestState);
 
 
                 TodDrawString(g, StrFormat(fmt.c_str(), name.c_str()), 140, 620, Sexy::FONT_HOUSEOFTERROR28, Color(255, 255, 153, 255), DrawStringJustification::DS_ALIGN_LEFT);
@@ -467,30 +516,7 @@ void ChallengeScreen::Draw(Sexy::Graphics *g) {
             // ======================
             if (IsRemoteServer()) {
                 pvzstl::string fmt = TodStringTranslate("[CHALLENGESCREEN_TIP_OPPONENT_WANTS_PLAY_FMT]");
-                pvzstl::string name = "unknown";
-
-                switch (gChallengeScreenRequestState) {
-                    case GAMEMODE_MP_VS_DAY:
-                        name = TodStringTranslate("[MP_VS_DAY]");
-                        break;
-                    case GAMEMODE_MP_VS_NIGHT:
-                        name = TodStringTranslate("[MP_VS_NIGHT]");
-                        break;
-                    case GAMEMODE_MP_VS_POOL_DAY:
-                        name = TodStringTranslate("[MP_VS_POOL_DAY]");
-                        break;
-                    case GAMEMODE_MP_VS_POOL_NIGHT:
-                        name = TodStringTranslate("[MP_VS_POOL_NIGHT]");
-                        break;
-                    case GAMEMODE_MP_VS_ROOF:
-                        name = TodStringTranslate("[MP_VS_ROOF]");
-                        break;
-                    case GAMEMODE_MP_VS_SHUFFLE_MODE:
-                        name = TodStringTranslate("[MP_VS_SHUFFLE_MODE]");
-                        break;
-                    default:
-                        break;
-                }
+                pvzstl::string name = GetNetplayModeName(gChallengeScreenRequestState);
                 TodDrawString(g, StrFormat(fmt.c_str(), name.c_str()), 140, 620, Sexy::FONT_HOUSEOFTERROR28, Color(255, 255, 153, 255), DrawStringJustification::DS_ALIGN_LEFT);
             }
         }
@@ -501,9 +527,9 @@ void ChallengeScreen::Update() {
     // 记录当前游戏状态
     old_ChallengeScreen_Update(this);
 
-    if (mPage == ChallengePage::CHALLENGE_PAGE_VS) {
+    if (IsNetplayChallengePage(mPage)) {
         if (!gNetplayLobbyFinished && mNetplayLobbyWidget == nullptr && mApp->mHelpTextScreen == nullptr && !IsRemoteClient() && !IsRemoteServer()) {
-            mNetplayLobbyWidget = new NetplayLobbyWidget(mApp);
+            mNetplayLobbyWidget = new NetplayLobbyWidget(mApp, mPage == ChallengePage::CHALLENGE_PAGE_COOP);
             AddWidget(mNetplayLobbyWidget);
             VSSetupAddonWidget::ResetGlobalBpState();
             if (gChallengeScreenOpenReplayManage) {
@@ -664,14 +690,15 @@ void ChallengeScreen::MouseUp(int x, int y) {
             gChallengeItemMoved = false;
             return;
         }
-        int nextMode = mPageChallengeIndex[gameIndex];
-        if (mPage == ChallengePage::CHALLENGE_PAGE_VS && !IsValidVsMode(nextMode)) {
-            LOG_WARN("[ChallengeScreen] drop MouseUp invalid VS mode={} gameIndex={}", nextMode, gameIndex);
+        int nextSelection = mPageChallengeIndex[gameIndex];
+        int nextMode = SelectionToNetplayMode(mPage, nextSelection);
+        if (IsNetplayChallengePage(mPage) && !IsValidModeForPage(mPage, nextMode)) {
+            LOG_WARN("[ChallengeScreen] drop MouseUp invalid netplay mode={} selection={} page={} gameIndex={}", nextMode, nextSelection, int(mPage), gameIndex);
             gTouchOutSide = false;
             gChallengeItemMoved = false;
             return;
         }
-        if (mSelectedChallengeIndex == nextMode) {
+        if (mSelectedChallengeIndex == nextSelection) {
             KeyDown(Sexy::KEYCODE_RETURN);
         } else {
             mApp->PlaySample(Sexy::SOUND_BUTTONCLICK);
@@ -682,12 +709,15 @@ void ChallengeScreen::MouseUp(int x, int y) {
                 gChallengeScreenRequestState = nextMode;
             } else if (IsRemoteServer()) {
                 // 房主
-                mSelectedChallengeIndex = GameMode(nextMode);
-                U16_Event event = {{EventType::EVENT_SERVER_CHALLENGESCREEN_SELECT_MODE}, uint16_t(mSelectedChallengeIndex)};
+                mSelectedChallengeIndex = GameMode(nextSelection);
+                if (mPage == ChallengePage::CHALLENGE_PAGE_COOP) {
+                    mSelectedGameMode = GameMode(nextMode);
+                }
+                U16_Event event = {{EventType::EVENT_SERVER_CHALLENGESCREEN_SELECT_MODE}, uint16_t(nextMode)};
                 netplay::PutEvent(event);
             } else {
                 // 单机
-                mSelectedChallengeIndex = GameMode(nextMode);
+                mSelectedChallengeIndex = GameMode(nextSelection);
             }
         }
     }
@@ -699,16 +729,22 @@ void ChallengeScreen::KeyDown(Sexy::KeyCode theKey) {
     if (gIsReplayMode && (theKey == Sexy::KEYCODE_BACK || theKey == Sexy::KEYCODE_ESCAPE || theKey == Sexy::KEYCODE_GAMEPAD_B)) {
         return;
     }
-    if (theKey == Sexy::KEYCODE_RETURN && mPage == ChallengePage::CHALLENGE_PAGE_VS) {
+    if (theKey == Sexy::KEYCODE_RETURN && IsNetplayChallengePage(mPage)) {
+        const int selectedMode = SelectionToNetplayMode(mPage, mSelectedChallengeIndex);
+        if (!IsValidModeForPage(mPage, selectedMode)) {
+            LOG_WARN("[ChallengeScreen] drop KeyDown invalid netplay mode={} selection={} page={}", selectedMode, int(mSelectedChallengeIndex), int(mPage));
+            return;
+        }
+
         if (IsRemoteClient()) {
-            U16_Event event = {{EventType::EVENT_CLIENT_CHALLENGESCREEN_SELECT_MODE}, uint16_t(mSelectedChallengeIndex)};
+            U16_Event event = {{EventType::EVENT_CLIENT_CHALLENGESCREEN_SELECT_MODE}, uint16_t(selectedMode)};
             netplay::PutEvent(event);
-            gChallengeScreenRequestState = mSelectedChallengeIndex;
+            gChallengeScreenRequestState = selectedMode;
             return;
         }
 
         if (IsRemoteServer()) {
-            U16_Event event = {{EventType::EVENT_SERVER_CHALLENGESCREEN_BUTTON_DEPRESS}, uint16_t(mSelectedChallengeIndex)};
+            U16_Event event = {{EventType::EVENT_SERVER_CHALLENGESCREEN_BUTTON_DEPRESS}, uint16_t(selectedMode)};
             netplay::PutEvent(event);
         }
     }
@@ -758,8 +794,8 @@ void ChallengeScreen::processClientEvent(const BaseEvent *event) const {
     switch (event->type) {
         case EVENT_CLIENT_CHALLENGESCREEN_SELECT_MODE: {
             auto *eventButtonDepress = static_cast<const U16_Event *>(event);
-            if (mPage == ChallengePage::CHALLENGE_PAGE_VS && !IsValidVsMode(eventButtonDepress->data)) {
-                LOG_WARN("[ChallengeScreen] ignore invalid client VS request mode={}", eventButtonDepress->data);
+            if (IsNetplayChallengePage(mPage) && !IsValidModeForPage(mPage, eventButtonDepress->data)) {
+                LOG_WARN("[ChallengeScreen] ignore invalid client netplay request mode={} page={}", eventButtonDepress->data, int(mPage));
                 break;
             }
             gChallengeScreenRequestState = eventButtonDepress->data;
@@ -776,13 +812,21 @@ void ChallengeScreen::processServerEvent(const BaseEvent *event) {
         case EVENT_SERVER_CHALLENGESCREEN_BUTTON_DEPRESS: {
             auto *eventBtnDepress = static_cast<const U16_Event *>(event);
             int theId = eventBtnDepress->data;
-            if (mPage == ChallengePage::CHALLENGE_PAGE_VS && !IsValidVsMode(theId)) {
-                LOG_WARN("[ChallengeScreen] ignore invalid VS button depress mode={}", theId);
+            if (!IsValidModeForPage(mPage, theId)) {
+                LOG_WARN("[ChallengeScreen] ignore invalid netplay button depress mode={} page={}", theId, int(mPage));
                 break;
             }
-            mSelectedChallengeIndex = GameMode(theId);
-            if (gChallengeScreenRequestState == mSelectedChallengeIndex) {
+            mSelectedChallengeIndex = GameMode(NetplayModeToSelection(mPage, theId));
+            if (mPage == ChallengePage::CHALLENGE_PAGE_COOP) {
+                mSelectedGameMode = GameMode(theId);
+            }
+            if (gChallengeScreenRequestState == theId) {
                 gChallengeScreenRequestState = 0;
+            }
+
+            if (mPage == ChallengePage::CHALLENGE_PAGE_COOP) {
+                KeyDown_Origin(Sexy::KEYCODE_RETURN);
+                return;
             }
 
             switch (mSelectedChallengeIndex) {
@@ -808,17 +852,22 @@ void ChallengeScreen::processServerEvent(const BaseEvent *event) {
                 default:
                     break;
             }
-            mApp->KillChallengeScreen();
-            mApp->PreNewGame(GAMEMODE_MP_VS, false);
+            LawnApp *app = mApp;
+            app->KillChallengeScreen();
+            app->PreNewGame(GAMEMODE_MP_VS, false);
+            return;
         } break;
         case EVENT_SERVER_CHALLENGESCREEN_SELECT_MODE: {
             auto *event1 = static_cast<const U16_Event *>(event);
             int theId = event1->data;
-            if (mPage == ChallengePage::CHALLENGE_PAGE_VS && !IsValidVsMode(theId)) {
-                LOG_WARN("[ChallengeScreen] ignore invalid VS select mode={}", theId);
+            if (!IsValidModeForPage(mPage, theId)) {
+                LOG_WARN("[ChallengeScreen] ignore invalid netplay select mode={} page={}", theId, int(mPage));
                 break;
             }
-            mSelectedChallengeIndex = GameMode(theId);
+            mSelectedChallengeIndex = GameMode(NetplayModeToSelection(mPage, theId));
+            if (mPage == ChallengePage::CHALLENGE_PAGE_COOP) {
+                mSelectedGameMode = GameMode(theId);
+            }
         } break;
         default:
             break;

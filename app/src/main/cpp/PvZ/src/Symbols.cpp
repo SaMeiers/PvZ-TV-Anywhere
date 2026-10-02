@@ -54,6 +54,7 @@ bool LoadGameMain() {
     Board_DrawGameObjectsAddr = libGameMain.GetSymbol("_ZN5Board15DrawGameObjectsEPN4Sexy8GraphicsE");
     Board_StageIsNightAddr = libGameMain.GetSymbol("_ZN5Board12StageIsNightEv");
     Board_StageHasPoolAddr = libGameMain.GetSymbol("_ZN5Board12StageHasPoolEv");
+    Board_StageHasZombieWalkInFromRightAddr = libGameMain.GetSymbol("_ZN5Board29StageHasZombieWalkInFromRightEv");
     Board_StageHas6RowsAddr = libGameMain.GetSymbol("_ZN5Board13StageHas6RowsEv");
     Board_ClearCursorAddr = libGameMain.GetSymbol("_ZN5Board11ClearCursorEi");
     Board_UpdateGameAddr = libGameMain.GetSymbol("_ZN5Board10UpdateGameEv");
@@ -649,6 +650,7 @@ bool LoadGameMain() {
     Coin_PlayCollectSoundAddr = libGameMain.GetSymbol("_ZN4Coin16PlayCollectSoundEv");
     Coin_ScoreCoinAddr = libGameMain.GetSymbol("_ZN4Coin9ScoreCoinEv");
     Coin_CollectAddr = libGameMain.GetSymbol("_ZN4Coin7CollectEi");
+    Coin_FanOutCoinsAddr = libGameMain.GetSymbol("_ZN4Coin11FanOutCoinsE8CoinTypei");
     Coin_GetSunValueAddr = libGameMain.GetSymbol("_ZN4Coin11GetSunValueEv");
     Coin_GetSunScaleAddr = libGameMain.GetSymbol("_ZN4Coin11GetSunScaleEv");
     Coin_GetCoinValueAddr = libGameMain.GetSymbol("_ZN4Coin12GetCoinValueE8CoinType");
@@ -772,6 +774,7 @@ bool LoadGameMain() {
     Plant_PlantInitializeAddr = libGameMain.GetSymbol("_ZN5Plant15PlantInitializeEii8SeedTypeS0_i");
     Plant_CobCannonFireAddr = libGameMain.GetSymbol("_ZN5Plant13CobCannonFireEii");
     Plant_DieAddr = libGameMain.GetSymbol("_ZN5Plant3DieEv");
+    Plant_ImitaterMorphAddr = libGameMain.GetSymbol("_ZN5Plant13ImitaterMorphEv");
     Plant_SetSleepingAddr = libGameMain.GetSymbol("_ZN5Plant11SetSleepingEb");
     Plant_UpdateReanimAddr = libGameMain.GetSymbol("_ZN5Plant12UpdateReanimEv");
     Plant_DrawSeedTypeAddr = libGameMain.GetSymbol("_ZN5Plant12DrawSeedTypeEPN4Sexy8GraphicsE8SeedTypeS3_13DrawVariationff");

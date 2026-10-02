@@ -172,8 +172,9 @@ public:
     GameButton *mRoomOptionButton;
     int mSelectedServerListIndex;
     bool mZombieBackground;
+    bool mIsCoopLobby;
 
-    explicit NetplayLobbyWidget(LawnApp *app);
+    explicit NetplayLobbyWidget(LawnApp *app, bool isCoopLobby = false);
     ~NetplayLobbyWidget();
 
     void AddedToManager(Sexy::WidgetManager *theWidgetManager);

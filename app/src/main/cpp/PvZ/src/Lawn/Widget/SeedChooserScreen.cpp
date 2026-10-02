@@ -2161,7 +2161,7 @@ void SeedChooserScreen::Update() {
 
     // 记录当前1P选卡是否选满
     if (mApp->IsCoopMode()) {
-        m1PChoosingSeeds = mSeedsIn1PBank < 4;
+        m1PChoosingSeeds = IsOnlineModeActive() ? !IsRemoteClient() : (mSeedsIn1PBank < 4);
     }
 
     if (!mGlobalBpBansApplied) {
@@ -2653,6 +2653,116 @@ SeedType SeedChooserScreen::FindSeedInBank(int theIndexInBank, int thePlayerInde
     return SEED_NONE;
 }
 
+void SeedChooserScreen::SelectCoopImitaterSeed(SeedType theImitaterType) {
+    if (!mApp->IsCoopMode() || !IsOnlineModeActive() || theImitaterType < SEED_PEASHOOTER || int(theImitaterType) >= UINT8_MAX || theImitaterType == SEED_IMITATER) {
+        return;
+    }
+
+    U8x3_Event event = {{IsRemoteClient() ? EventType::EVENT_CLIENT_SEEDCHOOSER_SELECT_SEED : EventType::EVENT_SERVER_SEEDCHOOSER_SELECT_SEED},
+                        {uint8_t(SEED_IMITATER), uint8_t(int(theImitaterType) + 1), 0}};
+    if (IsRemoteClient() || ApplyCoopSeedEvent(event, 0)) {
+        netplay::PutEvent(event);
+    }
+}
+
+bool SeedChooserScreen::ApplyCoopSeedEvent(const U8x3_Event &event, int thePlayerIndex) {
+    if (!mApp->IsCoopMode() || thePlayerIndex < 0 || thePlayerIndex > 1) {
+        return false;
+    }
+
+    const SeedType seedType = SeedType(event.data[0]);
+    const int seedIndex = GetSeedPacketIndex(seedType);
+    if (seedType < SeedType::SEED_PEASHOOTER || seedIndex < 0 || seedIndex >= GetSeedStorageCount()) {
+        return false;
+    }
+    const bool isImitater = seedType == SEED_IMITATER;
+    if (!isImitater && event.data[1] != 0) {
+        return false;
+    }
+
+    if (mSeedsInFlight > 0) {
+        for (int i = 0; i < GetSeedStorageCount(); ++i) {
+            LandFlyingSeed(GetChosenSeed(i));
+        }
+    }
+
+    int &cursorX = thePlayerIndex == 0 ? mCursorPositionX1 : mCursorPositionX2;
+    int &cursorY = thePlayerIndex == 0 ? mCursorPositionY1 : mCursorPositionY2;
+    int &cursorSeed = thePlayerIndex == 0 ? mSeedIndex1 : mSeedIndex2;
+    GetSeedPositionInChooser(seedIndex, cursorX, cursorY);
+    cursorSeed = seedIndex;
+
+    ChosenSeed &chosenSeed = GetChosenSeed(seedIndex);
+    if ((event.data[2] & kCoopRemoveSeedEventFlag) != 0) {
+        if (chosenSeed.mSeedState != ChosenSeedState::SEED_IN_BANK || chosenSeed.mChosenPlayerIndex != thePlayerIndex || chosenSeed.mCrazyDavePicked) {
+            return false;
+        }
+        ClickedSeedInBank_Origin(chosenSeed, thePlayerIndex);
+        return true;
+    }
+
+    const bool isAvailable = chosenSeed.mSeedState == SEED_IN_CHOOSER || (isImitater && chosenSeed.mSeedState == SEED_PACKET_HIDDEN);
+    if (!isAvailable || !HasPacket(seedType, false) || SeedNotAllowedToPick(seedType) || SeedNotAllowedDuringTrial(seedType)) {
+        return false;
+    }
+
+    const ChosenSeed previousSeed = chosenSeed;
+    if (isImitater) {
+        const SeedType imitaterType = SeedType(int(event.data[1]) - 1);
+        const int targetIndex = GetSeedPacketIndex(imitaterType);
+        if (imitaterType < SEED_PEASHOOTER || imitaterType == SEED_IMITATER || targetIndex < 0 || targetIndex >= GetSeedStorageCount() || GetPlantSeedType(targetIndex) != imitaterType
+            || !HasPacket(imitaterType, false) || Plant::IsUpgrade(imitaterType) || SeedNotAllowedToPick(imitaterType) || SeedNotAllowedDuringTrial(imitaterType)) {
+            return false;
+        }
+        chosenSeed.mImitaterType = imitaterType;
+        chosenSeed.mSeedState = SEED_IN_CHOOSER;
+        GetSeedPositionInChooser(seedIndex, chosenSeed.mX, chosenSeed.mY);
+    }
+    chosenSeed.mSeedType = seedType;
+    const int previousCount = mSeedsInBank;
+    ClickedSeedInChooser_Orgin(chosenSeed, thePlayerIndex);
+    const bool picked = mSeedsInBank > previousCount && chosenSeed.mChosenPlayerIndex == thePlayerIndex;
+    if (isImitater) {
+        if (!picked) {
+            chosenSeed = previousSeed;
+        }
+        UpdateImitaterButton();
+    }
+    return picked;
+}
+
+void SeedChooserScreen::ProcessCoopClientEvent(const BaseEvent *event) {
+    if (!IsRemoteServer()) {
+        return;
+    }
+
+    if (event->type == EventType::EVENT_CLIENT_SEEDCHOOSER_SELECT_SEED) {
+        const auto &seedEvent = *static_cast<const U8x3_Event *>(event);
+        if (!ApplyCoopSeedEvent(seedEvent, 1)) {
+            return;
+        }
+
+        U8x3_Event syncEvent = {{EventType::EVENT_SERVER_SEEDCHOOSER_SELECT_SEED}, {seedEvent.data[0], seedEvent.data[1], uint8_t(seedEvent.data[2] | kCoopPlayerTwoEventFlag)}};
+        netplay::PutEvent(syncEvent);
+    }
+}
+
+void SeedChooserScreen::ProcessCoopServerEvent(const BaseEvent *event) {
+    if (event->type == EventType::EVENT_SERVER_SEEDCHOOSER_SELECT_SEED) {
+        const auto &seedEvent = *static_cast<const U8x3_Event *>(event);
+        const int ownerPlayerIndex = (seedEvent.data[2] & kCoopPlayerTwoEventFlag) != 0 ? 1 : 0;
+        ApplyCoopSeedEvent(seedEvent, ownerPlayerIndex);
+        return;
+    }
+
+    if (event->type == EventType::EVENT_SERVER_SEEDCHOOSER_BUTTON_DEPRESS) {
+        const auto &buttonEvent = *static_cast<const U8U8_Event *>(event);
+        if (buttonEvent.data1 == SeedChooserScreen_Start && buttonEvent.data2 == 0) {
+            ButtonDepress_Origin(buttonEvent.data1);
+        }
+    }
+}
+
 void SeedChooserScreen::ClickedSeedInChooser(ChosenSeed &theChosenSeed, int thePlayerIndex) {
     int selectedIndex = GetChosenSeedIndex(theChosenSeed);
     if (mApp->IsVSMode() && thePlayerIndex >= 0 && thePlayerIndex <= 1) {
@@ -2677,6 +2787,33 @@ void SeedChooserScreen::ClickedSeedInChooser(ChosenSeed &theChosenSeed, int theP
 
     // Keep local chosen-seed payload coherent with index->type mapping.
     selectedSeed.mSeedType = selectedSeedType;
+
+    if (mApp->IsCoopMode() && IsOnlineModeActive()) {
+        if (selectedSeedType == SEED_IMITATER) {
+            const SeedType imitaterType = selectedSeed.mImitaterType;
+            if (selectedSeed.mSeedState == SEED_IN_CHOOSER) {
+                selectedSeed.mSeedState = SEED_PACKET_HIDDEN;
+                selectedSeed.mImitaterType = SEED_NONE;
+            }
+            SelectCoopImitaterSeed(imitaterType);
+            UpdateImitaterButton();
+            return;
+        }
+        const int ownerPlayerIndex = IsRemoteClient() ? 1 : 0;
+        if (IsRemoteClient()) {
+            U8x3_Event event = {{EventType::EVENT_CLIENT_SEEDCHOOSER_SELECT_SEED}, {uint8_t(selectedSeedType), 0, 0}};
+            netplay::PutEvent(event);
+            return;
+        }
+
+        const int previousCount = mSeedsInBank;
+        ClickedSeedInChooser_Orgin(selectedSeed, ownerPlayerIndex);
+        if (mSeedsInBank != previousCount) {
+            U8x3_Event event = {{EventType::EVENT_SERVER_SEEDCHOOSER_SELECT_SEED}, {uint8_t(selectedSeedType), 0, 0}};
+            netplay::PutEvent(event);
+        }
+        return;
+    }
 
     if (mApp->IsVSMode()) {
         const uint8_t cursorFlags = (mPageIndex == 1) ? kCursorPageOneEventFlag : 0;
@@ -2713,7 +2850,7 @@ void SeedChooserScreen::ClickedSeedInChooser_Orgin(ChosenSeed &theChosenSeed, in
     }
     theChosenSeed.mSeedType = canonicalSeedType;
     // 实现1P结盟选卡选满后自动转换为2P选卡
-    if (mApp->IsCoopMode())
+    if (mApp->IsCoopMode() && !IsOnlineModeActive())
         thePlayerIndex = !m1PChoosingSeeds;
 
     int aGamepadIndex = mApp->PlayerToGamepadIndex(thePlayerIndex);
@@ -2953,6 +3090,31 @@ void SeedChooserScreen::CrazyDavePickSeeds() {
 }
 
 void SeedChooserScreen::ClickedSeedInBank(ChosenSeed &theChosenSeed, int thePlayerIndex) {
+    if (mApp->IsCoopMode() && IsOnlineModeActive()) {
+        const int ownerPlayerIndex = IsRemoteClient() ? 1 : 0;
+        if (theChosenSeed.mChosenPlayerIndex != ownerPlayerIndex) {
+            return;
+        }
+
+        if (IsRemoteClient()) {
+            U8x3_Event event = {{EventType::EVENT_CLIENT_SEEDCHOOSER_SELECT_SEED}, {uint8_t(theChosenSeed.mSeedType), 0, kCoopRemoveSeedEventFlag}};
+            netplay::PutEvent(event);
+            return;
+        }
+
+        const int previousCount = mSeedsInBank;
+        ClickedSeedInBank_Origin(theChosenSeed, ownerPlayerIndex);
+        if (mSeedsInBank != previousCount) {
+            U8x3_Event event = {{EventType::EVENT_SERVER_SEEDCHOOSER_SELECT_SEED}, {uint8_t(theChosenSeed.mSeedType), 0, kCoopRemoveSeedEventFlag}};
+            netplay::PutEvent(event);
+        }
+        return;
+    }
+
+    ClickedSeedInBank_Origin(theChosenSeed, thePlayerIndex);
+}
+
+void SeedChooserScreen::ClickedSeedInBank_Origin(ChosenSeed &theChosenSeed, int thePlayerIndex) {
     // 解决结盟1P选够4个种子之后，无法点击种子栏内的已选种子来退选的问题
     if (mApp->IsCoopMode()) {
         thePlayerIndex = theChosenSeed.mChosenPlayerIndex;
@@ -3667,6 +3829,14 @@ void SeedChooserScreen::ButtonDepress(int theId) {
         return;
     }
 
+    if (mApp->IsCoopMode() && IsOnlineModeActive() && theId == SeedChooserScreen_Start) {
+        if (IsRemoteClient()) {
+            return;
+        }
+        U8U8_Event event = {{EventType::EVENT_SERVER_SEEDCHOOSER_BUTTON_DEPRESS}, uint8_t(theId), 0};
+        netplay::PutEvent(event);
+    }
+
     if (mApp->IsVSMode()) {
         if (IsRemoteClient()) {
             U8U8_Event event = {{EventType::EVENT_CLIENT_SEEDCHOOSER_BUTTON_DEPRESS}, uint8_t(theId), uint8_t(mIsZombieChooser)};
@@ -4036,7 +4206,7 @@ void SeedChooserScreen::MouseDown(int x, int y, int theClickCount) {
         gSeedChooserTouchState = SeedChooserTouchState::SEEDCHOOSER_TOUCHSTATE_NONE;
     }
 
-    m1PChoosingSeeds = !mApp->IsCoopMode() || mSeedsIn1PBank < 4;
+    m1PChoosingSeeds = !mApp->IsCoopMode() || (IsOnlineModeActive() ? !IsRemoteClient() : (mSeedsIn1PBank < 4));
 
     bool mViewLawnButtonDisabled = mViewLawnButton == nullptr || !mBoard->mCutScene->IsSurvivalRepick();
     bool mStoreButtonDisabled = mStoreButton == nullptr || mStoreButton->mBtnNoDraw || mStoreButton->mDisabled;

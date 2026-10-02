@@ -99,6 +99,8 @@ public:
     static constexpr uint8_t kCursorMoveOnlyEventFlag = 0x01;
     static constexpr uint8_t kCursorPageOneEventFlag = 0x02;
     static constexpr uint8_t kBanTimeoutSkipEventFlag = 0x04;
+    static constexpr uint8_t kCoopPlayerTwoEventFlag = 0x08;
+    static constexpr uint8_t kCoopRemoveSeedEventFlag = 0x10;
     static constexpr int kPickCountdownSeconds = 45;
     static constexpr int kBanCountdownSeconds = 30;
 
@@ -226,6 +228,11 @@ public:
     void OnPlayerPickedSeed(int thePlayerIndex);
     void ClickedSeedInChooser(ChosenSeed &theChosenSeed, int thePlayerIndex);
     void ClickedSeedInChooser_Orgin(ChosenSeed &theChosenSeed, int thePlayerIndex);
+    void ClickedSeedInBank_Origin(ChosenSeed &theChosenSeed, int thePlayerIndex);
+    void SelectCoopImitaterSeed(SeedType theImitaterType);
+    bool ApplyCoopSeedEvent(const U8x3_Event &event, int thePlayerIndex);
+    void ProcessCoopClientEvent(const BaseEvent *event);
+    void ProcessCoopServerEvent(const BaseEvent *event);
     void CrazyDavePickSeeds();
     void OnStartButton();
     void Update();

@@ -283,6 +283,7 @@ public:
     void PlantInitialize(int theGridX, int theGridY, SeedType theSeedType, SeedType theImitaterType, int a6);
     void Update();
     void UpdateAbilities();
+    void ImitaterMorph();
     void Squish();
     void Draw(Sexy::Graphics *g);
     void DrawShadow(Sexy::Graphics *g, float theOffsetX, float theOffsetY);

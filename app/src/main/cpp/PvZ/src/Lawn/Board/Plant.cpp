@@ -2818,6 +2818,24 @@ pvzstl::string Plant::GetToolTip(SeedType theSeedType) {
     return TodStringTranslate(aToolTip.c_str());
 }
 
+void Plant::ImitaterMorph() {
+    if (IsRemoteClientOrViewer()) {
+        return;
+    }
+
+    Die();
+    Plant *aPlant = mBoard->AddPlant(mPlantCol, mRow, mImitaterType, SeedType::SEED_IMITATER, unk, true);
+    if (aPlant == nullptr) {
+        return;
+    }
+
+    aPlant->SetImitaterFilterEffect();
+    if (IsRemoteServer() && mApp->mGameScene == SCENE_PLAYING) {
+        U16_Event event = {{EventType::EVENT_SERVER_BOARD_PLANT_IMITATER_MORPH}, uint16_t(mBoard->mPlants.DataArrayGetID(aPlant))};
+        netplay::PutEvent(event);
+    }
+}
+
 void Plant::SetImitaterFilterEffect() {
     FilterEffect aFilterEffect = GetFilterEffectTypeBySeedType(mSeedType);
     Reanimation *mBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
