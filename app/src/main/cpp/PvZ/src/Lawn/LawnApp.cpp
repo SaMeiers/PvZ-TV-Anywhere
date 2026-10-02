@@ -1661,8 +1661,26 @@ bool LawnApp::TryLoadGame() {
 
 void LawnApp::RetryOnlineGame(GameMode theGameMode) {
     PostLeaveLevel();
+    mMusic->StopAllMusic();
+    mSoundSystem->CancelPausedFoley();
+
+    const bool wasPauseSyncFromRemote = gPauseSyncFromRemote;
+    gPauseSyncFromRemote = true;
+    KillDialog(Dialogs::DIALOG_CONFIRM_IN_GAME_RESTART);
+    KillNewOptionsDialog();
     KillDialog(Dialogs::DIALOG_GAME_OVER);
+    gPauseSyncFromRemote = wasPauseSyncFromRemote;
     PreNewGame(theGameMode, false);
+}
+
+void LawnApp::RequestCoopRestart() {
+    if (!IsRemoteServer() || !IsCoopMode() || mBoard == nullptr || (mGameScene != GameScenes::SCENE_PLAYING && mGameScene != GameScenes::SCENE_LEVEL_INTRO)) {
+        return;
+    }
+    const GameMode aGameMode = mGameMode;
+    U16_Event event = {{EventType::EVENT_SERVER_BOARD_RETRY}, uint16_t(aGameMode)};
+    netplay::PutEvent(event);
+    RetryOnlineGame(aGameMode);
 }
 
 void LawnApp::RequestGameOverExit() {

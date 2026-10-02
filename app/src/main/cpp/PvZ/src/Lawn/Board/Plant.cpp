@@ -590,7 +590,15 @@ void Plant::UpdateBowling() {
             return;
         }
 
-        mApp->PlayFoley(FoleyType::FOLEY_BOWLINGIMPACT);
+        const auto playImpactFoley = [this](FoleyType theFoleyType) {
+            mApp->PlayFoley(theFoleyType);
+            if (IsRemoteServer()) {
+                U8_Event event = {{EventType::EVENT_SERVER_BOARD_PLAY_FOLEY}, uint8_t(theFoleyType)};
+                netplay::PutEvent(event);
+            }
+        };
+
+        playImpactFoley(FoleyType::FOLEY_BOWLINGIMPACT);
         mBoard->ShakeBoard(1, -2);
 
         if (mSeedType == SeedType::SEED_GIANT_WALLNUT || (aZombie->mShieldType == ShieldType::SHIELDTYPE_DOOR && mState != PlantState::STATE_NOTREADY)) {
@@ -603,9 +611,9 @@ void Plant::UpdateBowling() {
             aZombie->TakeShieldDamage(400, 0U);
         } else if (aZombie->mHelmType != HelmType::HELMTYPE_NONE) {
             if (aZombie->mHelmType == HelmType::HELMTYPE_PAIL) {
-                mApp->PlayFoley(FoleyType::FOLEY_SHIELD_HIT);
+                playImpactFoley(FoleyType::FOLEY_SHIELD_HIT);
             } else if (aZombie->mHelmType == HelmType::HELMTYPE_TRAFFIC_CONE) {
-                mApp->PlayFoley(FoleyType::FOLEY_PLASTIC_HIT);
+                playImpactFoley(FoleyType::FOLEY_PLASTIC_HIT);
             }
             if (IsRemoteServer()) {
                 U16U16U8_Event event = {{EventType::EVENT_SERVER_BOARD_ZOMBIE_TAKE_HELM_DAMAGE}, uint16_t(mBoard->mZombies.DataArrayGetID(aZombie)), 900, 0};

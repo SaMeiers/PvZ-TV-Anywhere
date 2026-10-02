@@ -569,7 +569,7 @@ void InitHookFunction() {
     // homura::HookFunc(SeedBank_SeedBankAddr, &SeedBank::Create, &old_SeedBank_SeedBank);
     // homura::HookFunc(SeedBank_UpdateWidthAddr, &SeedBank::UpdateWidth, &old_SeedBank_UpdateWidth);
     homura::HookFunc(SeedBank_MoveAddr, &SeedBank::Move, nullptr);
-    homura::HookFunc(SeedBank_AddSeedAddr, &SeedBank::AddSeed, &old_SeedBank_AddSeed);
+    homura::HookFunc(SeedBank_AddSeedAddr, &SeedBank::AddSeed, nullptr);
 
 
     homura::HookFunc(AwardScreen_MouseDownAddr, &AwardScreen::MouseDown, &old_AwardScreen_MouseDown);

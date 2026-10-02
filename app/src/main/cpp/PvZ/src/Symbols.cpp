@@ -719,6 +719,7 @@ bool LoadGameMain() {
     SeedBank_GetNumSeedsOnConveyorBeltAddr = libGameMain.GetSymbol("_ZN8SeedBank25GetNumSeedsOnConveyorBeltEv");
     SeedBank_ContainsPointAddr = libGameMain.GetSymbol("_ZN8SeedBank13ContainsPointEii");
     SeedBank_AddSeedAddr = libGameMain.GetSymbol("_ZN8SeedBank7AddSeedE8SeedTypeb");
+    SeedBank_UpdateConveyorBeltAddr = libGameMain.GetSymbol("_ZN8SeedBank18UpdateConveyorBeltEv");
 
 
     Challenge_UpdateAddr = libGameMain.GetSymbol("_ZN9Challenge6UpdateEv");

@@ -34,7 +34,7 @@
 #include <utility>
 #include <vector>
 
-inline constexpr uint32_t NETPLAY_VERSION = 3203;
+inline constexpr uint32_t NETPLAY_VERSION = 3204;
 
 // 联机事件只传输 DataArray ID 的低 16 位；slot/index 0 是合法对象 ID，
 // 因此不能使用游戏内部值为 0 的 PLANTID_NULL / ZOMBIEID_NULL / GRIDITEMID_NULL 作为网络空值。
@@ -104,6 +104,7 @@ enum EventType : uint8_t {
     EVENT_SERVER_BOARD_GAMEPAD_SET_STATE,
 
     EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL,
+    EVENT_SERVER_BOARD_GAMEPAD_SET_TOOL,
     EVENT_SERVER_BOARD_GAMEPAD_USE_SHOVEL,
 
     EVENT_CLIENT_BOARD_PAUSE,
@@ -186,6 +187,7 @@ enum EventType : uint8_t {
     EVENT_SERVER_BOARD_ZOMBIE_DROP_HEAD,
     EVENT_SERVER_BOARD_ZOMBIE_WIN, // 僵尸方通过进家胜利
     EVENT_SERVER_BOARD_ZOMBIE_MOW_DOWN,
+    EVENT_SERVER_BOARD_ZOMBIE_ADD_BUTTER,
     EVENT_SERVER_BOARD_ZOMBIE_TELEPORTATION_SHOOT,
     EVENT_SERVER_BOARD_ZOMBIE_TELEPORT,
     EVENT_SERVER_BOARD_PLANT_TELEPORT,
@@ -229,8 +231,12 @@ enum EventType : uint8_t {
     EVENT_SERVER_BOARD_SHUFFLE_RANDOM_PICK_NEXT,
 
     EVENT_SERVER_BOARD_RETRY,
+    EVENT_CLIENT_BOARD_RETRY,
+    EVENT_SERVER_BOARD_PLAY_FOLEY,
     EVENT_CLIENT_BOARD_GAMEOVER_EXIT,
     EVENT_SERVER_BOARD_GAMEOVER_EXIT,
+
+    EVENT_SERVER_BOARD_SEEDBANK_ADDSEED,
 
     // Local replay only. Never send this event through netplay::PutEvent.
     EVENT_LOCAL_BOARD_ACTION,
@@ -484,6 +490,9 @@ inline int gUdpScanSocket = -1;
 inline int gTcpServerSocket = -1;
 inline bool gTcpConnecting = false; // 正在尝试连接
 inline bool gTcpConnected = false;
+
+// Suppress outgoing pause events while applying remote state or restarting a match.
+inline bool gPauseSyncFromRemote = false;
 inline std::string gMetricsServerIp;
 inline int gMetricsServerPort = 0;
 inline int gMetricsRoomId = 0;

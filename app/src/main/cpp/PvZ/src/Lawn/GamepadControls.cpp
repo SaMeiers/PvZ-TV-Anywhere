@@ -452,13 +452,11 @@ void GamepadControls::Draw(Sexy::Graphics *g) {
             requestDrawShovelInCursor = false;
         }
 
-        if (requestDrawButterInCursor) {
-            if (is2P) {
-                g->DrawImage(addonImages.butter_glove, mCursorPositionX, mCursorPositionY);
-            }
+        if (mBoard->IsButterInCursor(mPlayerIndex)) {
+            g->DrawImage(addonImages.butter_glove, mCursorPositionX, mCursorPositionY);
         }
 
-        if (requestDrawShovelInCursor) {
+        if (mBoard->IsShovelInCursor(mPlayerIndex)) {
             if (anApp->mGameMode == GameMode::GAMEMODE_MP_VS) {
                 if (!mIsZombie) {
                     aCursorObject->mCursorType = CursorType::CURSOR_TYPE_SHOVEL;
@@ -469,7 +467,7 @@ void GamepadControls::Draw(Sexy::Graphics *g) {
                         aCursorObject->EndDraw(g);
                     }
                 }
-            } else if (!is2P) {
+            } else if (mBoard->UsesOnlineCoopTools() || !is2P) {
                 if (anApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_LAST_STAND) {
                     if (mBoard->mChallenge->mChallengeState == ChallengeState::STATECHALLENGE_NORMAL && anApp->mGameScene == GameScenes::SCENE_PLAYING) {
                         aCursorObject->mCursorType = CursorType::CURSOR_TYPE_MONEY_SIGN;

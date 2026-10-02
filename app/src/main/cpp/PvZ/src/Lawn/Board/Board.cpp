@@ -87,6 +87,14 @@ constexpr uintptr_t kBoardButtonListenerVtableOffset = 0x1FC;
 constexpr uintptr_t kBoardButtonListenerVTableOffset2 = 0x228;
 constexpr uint8_t kNoSelectedSeedIndex = UINT8_MAX;
 
+// Kept outside Board to preserve the native object's layout.
+struct CoopToolState {
+    GameObjectType tool = OBJECT_TYPE_NONE;
+    GameObjectType pressedButton = OBJECT_TYPE_NONE;
+    bool touching = false;
+};
+CoopToolState gCoopTools[2];
+
 int DecodeSelectedSeedIndex(uint8_t encodedIndex, const SeedBank *seedBank) {
     if (encodedIndex == kNoSelectedSeedIndex) {
         return -1;
@@ -100,12 +108,14 @@ int DecodeSelectedSeedIndex(uint8_t encodedIndex, const SeedBank *seedBank) {
     return selectedIndex;
 }
 
-// 新增：远端暂停同步保护
-bool gPauseSyncFromRemote = false;
-
 } // namespace
 
 void Board::_constructor(LawnApp *theApp) {
+    for (auto &tool : gCoopTools) {
+        tool = {};
+    }
+    requestDrawShovelInCursor = false;
+    requestDrawButterInCursor = false;
     Sexy::Widget::_constructor();
     Widget::vTable = reinterpret_cast<void **>(reinterpret_cast<uintptr_t>(vTableForBoardAddr) + 8);
     ButtonListener::vTable = reinterpret_cast<const Sexy::ButtonListener::VTable *>(reinterpret_cast<uintptr_t>(Widget::vTable) + kBoardButtonListenerVtableOffset);
@@ -591,29 +601,153 @@ const char *GetServerModeTransportSuffix() {
 }
 } // namespace
 
+bool Board::UsesOnlineCoopTools() const {
+    return mApp->IsCoopMode() && (IsRemoteServer() || IsRemoteClientOrViewer());
+}
+
+bool Board::IsShovelInCursor(int thePlayerIndex) const {
+    if (UsesOnlineCoopTools()) {
+        return mShowShovel && gCoopTools[thePlayerIndex].tool == OBJECT_TYPE_SHOVEL;
+    }
+    return requestDrawShovelInCursor && (mApp->IsVSMode() ? !mGamepadControls[thePlayerIndex]->mIsZombie : thePlayerIndex == 0);
+}
+
+bool Board::IsButterInCursor(int thePlayerIndex) const {
+    return UsesOnlineCoopTools() ? mShowButter && gCoopTools[thePlayerIndex].tool == OBJECT_TYPE_BUTTER : requestDrawButterInCursor && thePlayerIndex == 1;
+}
+
+void Board::SetCoopTool(int thePlayerIndex, GameObjectType theTool) {
+    auto &state = gCoopTools[thePlayerIndex];
+    if (state.tool == theTool) {
+        return;
+    }
+    auto *controls = mGamepadControls[thePlayerIndex];
+    if (theTool != OBJECT_TYPE_NONE) {
+        if (controls->mIsCobCannonSelected) {
+            controls->OnKeyDown(KeyCode::KEYCODE_ESCAPE, 1096);
+        }
+        RefreshSeedPacketFromCursor(thePlayerIndex);
+        controls->mGamepadState = BaseGamepadControls::MOVEMENT_STATE_NORMAL;
+    }
+    ClearCursor(thePlayerIndex);
+    state.tool = theTool;
+    if (theTool != OBJECT_TYPE_NONE) {
+        mApp->PlayFoley(theTool == OBJECT_TYPE_SHOVEL ? FOLEY_SHOVEL : FOLEY_FLOOP);
+    }
+    if (IsRemoteServer()) {
+        U8U8_Event event = {{EVENT_SERVER_BOARD_GAMEPAD_SET_TOOL}, uint8_t(thePlayerIndex), uint8_t(theTool)};
+        netplay::PutEvent(event);
+    }
+}
+
+void Board::ApplyCoopButter(int thePlayerIndex) {
+    if (!IsRemoteServer() || mPaused || mApp->mGameScene != SCENE_PLAYING || !IsButterInCursor(thePlayerIndex)) {
+        return;
+    }
+    auto *controls = mGamepadControls[thePlayerIndex];
+    // The last argument enables butter hit testing; it is not a player index.
+    Zombie *zombie = ZombieHitTest(controls->mCursorPositionX, controls->mCursorPositionY, 1);
+    if (zombie != nullptr) {
+        int oldCounter = zombie->mButteredCounter;
+        zombie->AddButter();
+        if (zombie->mButteredCounter != oldCounter) {
+            U16_Event event = {{EVENT_SERVER_BOARD_ZOMBIE_ADD_BUTTER}, uint16_t(mZombies.DataArrayGetID(zombie))};
+            netplay::PutEvent(event);
+        }
+    }
+}
+
+bool Board::HandleCoopToolTouch(int thePlayerIndex, int x, int y, CoopToolTouch thePhase) {
+    if (!UsesOnlineCoopTools() || !IsRemoteServer()) {
+        return false;
+    }
+    auto &state = gCoopTools[thePlayerIndex];
+    auto *controls = mGamepadControls[thePlayerIndex];
+    GameObjectType button = OBJECT_TYPE_NONE;
+    if (mShowShovel && GetShovelButtonRect().Contains(x, y)) {
+        button = OBJECT_TYPE_SHOVEL;
+    } else if (mShowButter && GetButterButtonRect().Contains(x, y)) {
+        button = OBJECT_TYPE_BUTTER;
+    }
+    bool onLawn = y >= 72 && button == OBJECT_TYPE_NONE && !mSeedBank[0]->ContainsPoint(x, y) && !mSeedBank[1]->ContainsPoint(x, y);
+    if (thePhase == CoopToolTouch::Down) {
+        state.touching = false;
+        state.pressedButton = OBJECT_TYPE_NONE;
+        if (mPaused || mApp->mGameScene != SCENE_PLAYING) {
+            return button != OBJECT_TYPE_NONE;
+        }
+        if (button != OBJECT_TYPE_NONE) {
+            state.touching = true;
+            state.pressedButton = button;
+            SetCoopTool(thePlayerIndex, state.tool == button ? OBJECT_TYPE_NONE : button);
+        } else if (controls->GetSeedBank()->ContainsPoint(x, y)) {
+            SetCoopTool(thePlayerIndex, OBJECT_TYPE_NONE);
+            return false;
+        } else if (state.tool != OBJECT_TYPE_NONE && onLawn) {
+            state.touching = true;
+        } else {
+            return false;
+        }
+    } else if (!state.touching) {
+        return false;
+    }
+
+    controls->mCursorPositionX = x;
+    controls->mCursorPositionY = y;
+    if (onLawn && state.pressedButton != OBJECT_TYPE_NONE) {
+        // Dragging out of a selected button also works after toggling it off.
+        SetCoopTool(thePlayerIndex, state.pressedButton);
+        state.pressedButton = OBJECT_TYPE_NONE;
+    }
+    if (thePhase == CoopToolTouch::Up) {
+        if (onLawn) {
+            if (IsShovelInCursor(thePlayerIndex)) {
+                ShovelDownForPlayer(thePlayerIndex);
+            } else if (IsButterInCursor(thePlayerIndex)) {
+                ApplyCoopButter(thePlayerIndex);
+                SetCoopTool(thePlayerIndex, OBJECT_TYPE_NONE);
+            }
+        }
+        state.touching = false;
+        state.pressedButton = OBJECT_TYPE_NONE;
+    }
+    return true;
+}
+
 void Board::ShovelDown() {
+    ShovelDownForPlayer(0);
+}
+
+void Board::ShovelDownForPlayer(int thePlayerIndex) {
+    if (IsRemoteClientOrViewer()) {
+        return;
+    }
     // 用于铲掉光标正下方的植物。
 
     if (mApp->IsVSMode() && mApp->mGameScene != SCENE_PLAYING) { // 对战正式开始对局后才能真正铲除植物
         return;
     }
 
-    requestDrawShovelInCursor = false;
-    if (IsRemoteServer()) {
+    if (UsesOnlineCoopTools()) {
+        SetCoopTool(thePlayerIndex, OBJECT_TYPE_NONE);
+    } else {
+        requestDrawShovelInCursor = false;
+    }
+    if (IsRemoteServer() && !UsesOnlineCoopTools()) {
         U8_Event event = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL}, requestDrawShovelInCursor};
         netplay::PutEvent(event);
     }
     bool isInShovelTutorial = (unsigned int)(mTutorialState - 15) <= 2;
     if (isInShovelTutorial) {
         // 如果正在铲子教学中(即冒险1-5的保龄球的开场前，戴夫要求你铲掉三个豌豆的这段时间),则发送铲除键来铲除。
-        mGamepadControls[0]->OnKeyDown(KeyCode::KEYCODE_QUICK_DIG, 1112);
-        ClearCursor(0);
-        RefreshSeedPacketFromCursor(0);
+        mGamepadControls[thePlayerIndex]->OnKeyDown(KeyCode::KEYCODE_QUICK_DIG, 1112);
+        ClearCursor(thePlayerIndex);
+        RefreshSeedPacketFromCursor(thePlayerIndex);
         return;
     }
     // 下方就是自己写的铲除逻辑喽。
-    float aXPos = mGamepadControls[0]->mCursorPositionX;
-    float aYPos = mGamepadControls[0]->mCursorPositionY;
+    float aXPos = mGamepadControls[thePlayerIndex]->mCursorPositionX;
+    float aYPos = mGamepadControls[thePlayerIndex]->mCursorPositionY;
     Plant *aPlantUnderShovel = ToolHitTest(aXPos, aYPos);
     if (aPlantUnderShovel != nullptr) {
         if (IsRemoteServer()) {
@@ -645,8 +779,8 @@ void Board::ShovelDown() {
         }
     }
 
-    ClearCursor(0);
-    RefreshSeedPacketFromCursor(0);
+    ClearCursor(thePlayerIndex);
+    RefreshSeedPacketFromCursor(thePlayerIndex);
 }
 
 void Board::UpdateGame() {
@@ -2053,12 +2187,20 @@ void Board::processClientEvent(const BaseEvent *event) {
                 PauseFromSecondPlayer(event1->data);
             }
         } break;
+        case EVENT_CLIENT_BOARD_RETRY: {
+            LawnApp *aApp = mApp;
+            aApp->RequestCoopRestart();
+            return;
+        }
         case EVENT_CLIENT_BOARD_GAMEOVER_EXIT: {
             LawnApp *aApp = mApp;
             aApp->RequestGameOverExit();
             return;
         }
         case EVENT_CLIENT_BOARD_CONCEDE: {
+            if (!mApp->IsVSMode()) {
+                break;
+            }
             mApp->KillNewOptionsDialog();
             mApp->KillDialog(DIALOG_CONFIRM_IN_GAME_RESTART);
             GamepadControls *clientGamepadControls = mGamepadControls[(mGamepadControls[1]->mGamepadIndex == 1) ? 1 : 0];
@@ -2174,6 +2316,23 @@ void Board::processServerEvent(const BaseEvent *event) {
                 mApp->PlayFoley(FOLEY_SHOVEL);
             }
             requestDrawShovelInCursor = event1->data;
+        } break;
+        case EVENT_SERVER_BOARD_GAMEPAD_SET_TOOL: {
+            auto *toolEvent = static_cast<const U8U8_Event *>(event);
+            SetCoopTool(toolEvent->data1, GameObjectType(toolEvent->data2));
+        } break;
+        case EVENT_SERVER_BOARD_ZOMBIE_ADD_BUTTER: {
+            auto *butterEvent = static_cast<const U16_Event *>(event);
+            uint16_t clientZombieID = 0;
+            if (homura::FindInMap(serverZombieIDMap, butterEvent->data, clientZombieID)) {
+                Zombie *zombie = mZombies.DataArrayGet(clientZombieID);
+                if (zombie != nullptr) {
+                    if (zombie->mButteredCounter == 0) {
+                        mApp->PlayFoley(FOLEY_BUTTER);
+                    }
+                    zombie->ApplyButter();
+                }
+            }
         } break;
         case EVENT_SERVER_BOARD_GAMEPAD_USE_SHOVEL: {
             mApp->PlayFoley(FOLEY_USE_SHOVEL);
@@ -2373,6 +2532,10 @@ void Board::processServerEvent(const BaseEvent *event) {
                 default:
                     break;
             }
+        } break;
+        case EVENT_SERVER_BOARD_PLAY_FOLEY: {
+            const auto *soundEvent = static_cast<const U8_Event *>(event);
+            mApp->PlayFoley(static_cast<FoleyType>(soundEvent->data));
         } break;
         case EVENT_SERVER_BOARD_PLAY_SOUND_SR: {
             if (!(gIsServerModeSpectator || gIsReplayMode)) {
@@ -3527,6 +3690,19 @@ void Board::processServerEvent(const BaseEvent *event) {
             auto *event1 = static_cast<const I16_Event *>(event);
             mDeathMoney = event1->data;
         } break;
+        case EVENT_SERVER_BOARD_SEEDBANK_ADDSEED: {
+            const auto *seedEvent = static_cast<const U8U8U16_Event *>(event);
+            SeedBank *aSeedBank = mSeedBank[seedEvent->data1];
+            if (aSeedBank == nullptr) {
+                break;
+            }
+            const int aSeedIndex = aSeedBank->GetNumSeedsOnConveyorBelt();
+            if (aSeedIndex >= aSeedBank->mNumPackets) {
+                break;
+            }
+            aSeedBank->AddSeed_Origin(SeedType(seedEvent->data2), false);
+            aSeedBank->mSeedPackets[aSeedIndex].mOffsetY = seedEvent->data3;
+        } break;
         case EVENT_SERVER_BOARD_SEEDPACKET_WASPLANTED: {
             auto *event1 = static_cast<const U8U8_Event *>(event);
             SeedBank *theSeedBank = event1->data2 ? mSeedBank[0] : mSeedBank[1];
@@ -3597,6 +3773,9 @@ void Board::processServerEvent(const BaseEvent *event) {
             return;
         }
         case EVENT_SERVER_BOARD_CONCEDE: {
+            if (!mApp->IsVSMode()) {
+                break;
+            }
             mApp->mMusic->StopAllMusic();
             mApp->mSoundSystem->CancelPausedFoley();
             mApp->KillNewOptionsDialog();
@@ -3909,14 +4088,27 @@ static void CheatSetZombieSpawn(Board *theBoard, const bool (&theZombiesToSpawn)
 void Board::Update() {
     isMainMenu = false;
 
-    if (requestDrawButterInCursor) {
+    if (UsesOnlineCoopTools()) {
+        for (int player = 0; player < 2; ++player) {
+            ApplyCoopButter(player);
+            if (IsShovelInCursor(player)) {
+                auto *controls = mGamepadControls[player];
+                Plant *plant = ToolHitTest(controls->mCursorPositionX, controls->mCursorPositionY);
+                if (plant != nullptr) {
+                    plant->mEatenFlashCountdown = 1000;
+                }
+            }
+        }
+    }
+
+    if (!UsesOnlineCoopTools() && requestDrawButterInCursor) {
         Zombie *aZombieUnderButter = ZombieHitTest(mGamepadControls[1]->mCursorPositionX, mGamepadControls[1]->mCursorPositionY, 1);
         if (aZombieUnderButter != nullptr) {
             aZombieUnderButter->AddButter();
         }
     }
 
-    if (requestDrawShovelInCursor) {
+    if (!UsesOnlineCoopTools() && requestDrawShovelInCursor) {
         Plant *plantUnderShovel = ToolHitTest(mGamepadControls[0]->mCursorPositionX, mGamepadControls[0]->mCursorPositionY);
         if (plantUnderShovel != nullptr) {
             // 让这个植物高亮
@@ -4369,7 +4561,7 @@ void Board::DrawButterButton(Sexy::Graphics *g, LawnApp *theApp) {
         g->SetColor(color);
     }
     // 实现拿着黄油的时候不在栏内绘制黄油
-    if (!requestDrawButterInCursor) {
+    if (UsesOnlineCoopTools() || !requestDrawButterInCursor) {
         g->DrawImage(Sexy::IMAGE_BUTTER_ICON, rect.mX - 7, rect.mY - 3);
     }
     if (gKeyboardMode) {
@@ -4407,7 +4599,7 @@ void Board::DrawShovelButton(Sexy::Graphics *g, LawnApp *theApp) {
     }
 
     // 实现拿着铲子的时候不在栏内绘制铲子
-    if (!requestDrawShovelInCursor) {
+    if (UsesOnlineCoopTools() || !requestDrawShovelInCursor) {
         if (theApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_LAST_STAND) {
             Challenge *challenge = mChallenge;
             if (challenge->mChallengeState == ChallengeState::STATECHALLENGE_NORMAL && theApp->mGameScene == GameScenes::SCENE_PLAYING) {
@@ -5259,10 +5451,14 @@ Rect gSlotMachineRect = {250, 0, 320, 100};
 
 bool gClientMouseInBank = false;
 bool gClientMouseInBoard = false;
+bool gClientMouseWithCoopTool = false;
 } // namespace
 
 
 void Board::ClientMouseDownLocal(int x, int y, bool isInBank) {
+    const int player = mGamepadControls[1]->mGamepadIndex == 1 ? 1 : 0;
+    gClientMouseWithCoopTool = UsesOnlineCoopTools() && !isInBank
+        && (IsShovelInCursor(player) || IsButterInCursor(player) || (mShowShovel && GetShovelButtonRect().Contains(x, y)) || (mShowButter && GetButterButtonRect().Contains(x, y)));
     gClientMouseInBank = isInBank;
     gClientMouseInBoard = !isInBank;
     if (gClientMouseInBoard) {
@@ -5287,7 +5483,7 @@ void Board::ClientMouseDragLocal(int x, int y) {
 
     if (gClientMouseInBoard) {
         int seedBankHeight = seedBank->mY + seedBank->mHeight;
-        if (y < seedBankHeight && clientGamepadControls->mGamepadState == BaseGamepadControls::MOVEMENT_STATE_PLANT_CURSOR) {
+        if (!gClientMouseWithCoopTool && y < seedBankHeight && clientGamepadControls->mGamepadState == BaseGamepadControls::MOVEMENT_STATE_PLANT_CURSOR) {
             gClientMouseInBoard = false;
             return;
         }
@@ -5299,6 +5495,7 @@ void Board::ClientMouseDragLocal(int x, int y) {
 void Board::ClientMouseUpLocal(int x, int y) {
     gClientMouseInBank = false;
     gClientMouseInBoard = false;
+    gClientMouseWithCoopTool = false;
 }
 
 
@@ -5313,10 +5510,12 @@ void Board::MouseDown(int x, int y, int theClickCount) {
         return;
     }
 
-    bool inRangeOf1PSeedBank = (mGamepadControls[0]->mGamepadIndex == 1 && mSeedBank[1]->ContainsPoint(x, y))
-        || (mGamepadControls[0]->mGamepadIndex == 0 && (mSeedBank[0]->ContainsPoint(x, y) || gTouchVSShovelRect.Contains(x, y)));
-    bool inRangeOf2PSeedBank = (mGamepadControls[1]->mGamepadIndex == 1 && mSeedBank[1]->ContainsPoint(x, y))
-        || (mGamepadControls[1]->mGamepadIndex == 0 && (mSeedBank[0]->ContainsPoint(x, y) || gTouchVSShovelRect.Contains(x, y)));
+    bool isVSShovel = mApp->IsVSMode() && gTouchVSShovelRect.Contains(x, y);
+    bool isCoopTool = UsesOnlineCoopTools() && ((mShowShovel && GetShovelButtonRect().Contains(x, y)) || (mShowButter && GetButterButtonRect().Contains(x, y)));
+    bool inRangeOf1PSeedBank = !isCoopTool
+        && ((mGamepadControls[0]->mGamepadIndex == 1 && mSeedBank[1]->ContainsPoint(x, y)) || (mGamepadControls[0]->mGamepadIndex == 0 && (mSeedBank[0]->ContainsPoint(x, y) || isVSShovel)));
+    bool inRangeOf2PSeedBank = !isCoopTool
+        && ((mGamepadControls[1]->mGamepadIndex == 1 && mSeedBank[1]->ContainsPoint(x, y)) || (mGamepadControls[1]->mGamepadIndex == 0 && (mSeedBank[0]->ContainsPoint(x, y) || isVSShovel)));
 
 
     // 如果是客户端
@@ -5344,6 +5543,12 @@ void Board::MouseDown(int x, int y, int theClickCount) {
     }
 }
 void Board::__MouseDown(int x, int y, int theClickCount) {
+    if (HandleCoopToolTouch(mGamepadControls[0]->mGamepadIndex == 0 ? 0 : 1, x, y, CoopToolTouch::Down)) {
+        gPlayerIndex = TouchPlayerIndex::TOUCHPLAYER_NONE;
+        gTouchState = TouchState::TOUCHSTATE_NONE;
+        gSendKeyWhenTouchUp = false;
+        return;
+    }
 
     old_Board_MouseDown(this, x, y, theClickCount);
     gTouchDownX = x;
@@ -5748,6 +5953,9 @@ void Board::MouseDrag(int x, int y) {
     }
 }
 void Board::__MouseDrag(int x, int y) {
+    if (HandleCoopToolTouch(mGamepadControls[0]->mGamepadIndex == 0 ? 0 : 1, x, y, CoopToolTouch::Drag)) {
+        return;
+    }
     // Drag函数仅仅负责移动光标即可
     old_Board_MouseDrag(this, x, y);
     // xx = x;
@@ -5938,6 +6146,9 @@ void Board::MouseUp(int x, int y, int theClickCount) {
     }
 }
 void Board::__MouseUp(int x, int y, int theClickCount) {
+    if (HandleCoopToolTouch(mGamepadControls[0]->mGamepadIndex == 0 ? 0 : 1, x, y, CoopToolTouch::Up)) {
+        return;
+    }
     old_Board_MouseUp(this, x, y, theClickCount);
     if (gTouchState != TouchState::TOUCHSTATE_NONE && gSendKeyWhenTouchUp) {
         SeedBank *seedBank = mGamepadControls[0]->GetSeedBank();
@@ -6041,6 +6252,12 @@ TouchState gTouchStateSecond = TouchState::TOUCHSTATE_NONE;
 } // namespace
 
 void Board::MouseDownSecond(int x, int y, int theClickCount) {
+    if (HandleCoopToolTouch(mGamepadControls[1]->mGamepadIndex == 1 ? 1 : 0, x, y, CoopToolTouch::Down)) {
+        gPlayerIndexSecond = TouchPlayerIndex::TOUCHPLAYER_NONE;
+        gTouchStateSecond = TouchState::TOUCHSTATE_NONE;
+        gSendKeyWhenTouchUpSecond = false;
+        return;
+    }
     // 触控落下手指在此处理
     gTouchDownXSecond = x;
     gTouchDownYSecond = y;
@@ -6440,6 +6657,9 @@ void Board::MouseDownSecond(int x, int y, int theClickCount) {
 
 
 void Board::MouseDragSecond(int x, int y) {
+    if (HandleCoopToolTouch(mGamepadControls[1]->mGamepadIndex == 1 ? 1 : 0, x, y, CoopToolTouch::Drag)) {
+        return;
+    }
     // Drag函数仅仅负责移动光标即可
     if (gTouchStateSecond == TouchState::TOUCHSTATE_NONE)
         return;
@@ -6594,6 +6814,9 @@ void Board::MouseDragSecond(int x, int y) {
 
 
 void Board::MouseUpSecond(int x, int y, int theClickCount) {
+    if (HandleCoopToolTouch(mGamepadControls[1]->mGamepadIndex == 1 ? 1 : 0, x, y, CoopToolTouch::Up)) {
+        return;
+    }
     if (gTouchStateSecond != TouchState::TOUCHSTATE_NONE && gSendKeyWhenTouchUpSecond) {
         SeedBank *aSeedBank = mGamepadControls[0]->GetSeedBank();
         int aNumSeedsOnConveyor = aSeedBank->GetNumSeedsOnConveyorBelt();

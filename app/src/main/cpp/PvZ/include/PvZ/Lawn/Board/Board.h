@@ -734,6 +734,14 @@ public:
     void SpeedUpUpdate();
     void DrawShovelButton(Sexy::Graphics *g, LawnApp *theApp);
     void ShovelDown();
+    void ShovelDownForPlayer(int thePlayerIndex);
+    bool UsesOnlineCoopTools() const;
+    bool IsShovelInCursor(int thePlayerIndex) const;
+    bool IsButterInCursor(int thePlayerIndex) const;
+    void SetCoopTool(int thePlayerIndex, GameObjectType theTool);
+    void ApplyCoopButter(int thePlayerIndex);
+    enum class CoopToolTouch { Down, Drag, Up };
+    bool HandleCoopToolTouch(int thePlayerIndex, int x, int y, CoopToolTouch thePhase);
     int PixelToGridXKeepOnBoard(int theX, int theY);
     int PixelToGridYKeepOnBoard(int theX, int theY);
     int GridToPixelX(int theGridX, int theGridY) const;

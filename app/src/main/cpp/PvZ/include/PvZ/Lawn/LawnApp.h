@@ -677,6 +677,7 @@ public:
     void ShowVSSetupScreen();
     void PreNewGame(GameMode theGameMode, bool theLookForSavedGame);
     void RetryOnlineGame(GameMode theGameMode);
+    void RequestCoopRestart();
     void RequestGameOverExit();
     void ExitGameOver();
     void ReturnToModeSelect();

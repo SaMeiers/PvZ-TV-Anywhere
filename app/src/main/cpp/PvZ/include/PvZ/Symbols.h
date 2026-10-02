@@ -721,6 +721,7 @@ inline void *SeedBank_MoveAddr;
 inline void *SeedBank_GetNumSeedsOnConveyorBeltAddr;
 inline void *SeedBank_ContainsPointAddr;
 inline void *SeedBank_AddSeedAddr;
+inline void *SeedBank_UpdateConveyorBeltAddr;
 
 
 inline void *Challenge_UpdateAddr;

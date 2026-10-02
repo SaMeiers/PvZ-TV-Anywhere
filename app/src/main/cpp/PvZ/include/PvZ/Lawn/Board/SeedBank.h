@@ -61,6 +61,9 @@ public:
     int GetNumSeedsOnConveyorBelt() {
         return reinterpret_cast<int (*)(SeedBank *)>(SeedBank_GetNumSeedsOnConveyorBeltAddr)(this);
     }
+    void UpdateConveyorBelt() {
+        reinterpret_cast<void (*)(SeedBank *)>(SeedBank_UpdateConveyorBeltAddr)(this);
+    }
 
     SeedBank(bool theIsZombie) {
         _constructor(theIsZombie);
@@ -75,7 +78,8 @@ public:
     bool ContainsPoint(int x, int y);
     bool BeginDraw(Sexy::Graphics *g);
     void EndDraw(Sexy::Graphics *g);
-    void AddSeed(int a2, int a3);
+    void AddSeed(SeedType theSeedType, bool thePlaceOnLeft);
+    void AddSeed_Origin(SeedType theSeedType, bool thePlaceOnLeft);
 
 protected:
     friend void InitHookFunction();
@@ -100,7 +104,5 @@ inline void (*old_SeedBank_UpdateWidth)(SeedBank *seedBank);
 inline bool (*old_SeedBank_BeginDraw)(SeedBank *seedBank, Sexy::Graphics *graphics);
 
 inline void (*old_SeedBank_EndDraw)(SeedBank *seedBank, Sexy::Graphics *graphics);
-
-inline void (*old_SeedBank_AddSeed)(SeedBank *seedBank, int a2, int a3);
 
 #endif // PVZ_LAWN_BOARD_SEED_BANK_H
