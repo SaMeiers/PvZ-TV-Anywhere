@@ -542,6 +542,129 @@ void Plant::Update() {
     old_Plant_Update(this);
 }
 
+void Plant::UpdateBowling() {
+    Reanimation *aBodyReanim = mApp->ReanimationTryToGet(mBodyReanimID);
+    if (aBodyReanim && aBodyReanim->TrackExists("_ground")) {
+        float aSpeed = aBodyReanim->GetTrackVelocity("_ground");
+        if (mSeedType == SeedType::SEED_GIANT_WALLNUT) {
+            aSpeed *= 2;
+        }
+
+        mX -= aSpeed;
+        if (mX > 800) {
+            Die();
+        }
+    }
+
+    if (mState == PlantState::STATE_BOWLING_UP) {
+        mY -= 2;
+    } else if (mState == PlantState::STATE_BOWLING_DOWN) {
+        mY += 2;
+    }
+
+    if (IsRemoteClientOrViewer()) {
+        return;
+    }
+
+    int aDistToGrid = mBoard->GridToPixelY(0, mRow) - mY;
+    if (aDistToGrid < -2 || aDistToGrid > 2) {
+        return;
+    }
+
+    const int aOldRow = mRow;
+    const PlantState aOldState = mState;
+    PlantState aNewState = mState;
+    if (mState == PlantState::STATE_BOWLING_UP && mRow <= 0) {
+        aNewState = PlantState::STATE_BOWLING_DOWN;
+    } else if (mState == PlantState::STATE_BOWLING_DOWN && mRow >= 4) {
+        aNewState = PlantState::STATE_BOWLING_UP;
+    }
+
+    Zombie *aZombie = FindTargetZombie(mRow, PlantWeapon::WEAPON_PRIMARY);
+    if (aZombie) {
+        int aPosX = mX + mWidth / 2;
+        int aPosY = mY + mHeight / 2;
+
+        if (mSeedType == SeedType::SEED_EXPLODE_O_NUT) {
+            DoSpecial();
+            return;
+        }
+
+        mApp->PlayFoley(FoleyType::FOLEY_BOWLINGIMPACT);
+        mBoard->ShakeBoard(1, -2);
+
+        if (mSeedType == SeedType::SEED_GIANT_WALLNUT || (aZombie->mShieldType == ShieldType::SHIELDTYPE_DOOR && mState != PlantState::STATE_NOTREADY)) {
+            aZombie->TakeDamage(1800, 0U);
+        } else if (aZombie->mShieldType != ShieldType::SHIELDTYPE_NONE) {
+            if (IsRemoteServer()) {
+                U16U16U8_Event event = {{EventType::EVENT_SERVER_BOARD_ZOMBIE_TAKE_SHIELD_DAMAGE}, uint16_t(mBoard->mZombies.DataArrayGetID(aZombie)), 400, 0};
+                netplay::PutEvent(event);
+            }
+            aZombie->TakeShieldDamage(400, 0U);
+        } else if (aZombie->mHelmType != HelmType::HELMTYPE_NONE) {
+            if (aZombie->mHelmType == HelmType::HELMTYPE_PAIL) {
+                mApp->PlayFoley(FoleyType::FOLEY_SHIELD_HIT);
+            } else if (aZombie->mHelmType == HelmType::HELMTYPE_TRAFFIC_CONE) {
+                mApp->PlayFoley(FoleyType::FOLEY_PLASTIC_HIT);
+            }
+            if (IsRemoteServer()) {
+                U16U16U8_Event event = {{EventType::EVENT_SERVER_BOARD_ZOMBIE_TAKE_HELM_DAMAGE}, uint16_t(mBoard->mZombies.DataArrayGetID(aZombie)), 900, 0};
+                netplay::PutEvent(event);
+            }
+            aZombie->TakeHelmDamage(900, 0U);
+        } else {
+            aZombie->TakeDamage(1800, 0U);
+        }
+
+        if ((!mApp->IsFirstTimeAdventureMode() || mBoard->mLevel > 10) && mSeedType == SeedType::SEED_WALLNUT) {
+            mLaunchCounter++;
+            if (mLaunchCounter == 2) {
+                mApp->PlayFoley(FoleyType::FOLEY_SPAWN_SUN);
+                mBoard->AddCoin(aPosX, aPosY, CoinType::COIN_SILVER, CoinMotion::COIN_MOTION_COIN);
+            } else if (mLaunchCounter == 3) {
+                mApp->PlayFoley(FoleyType::FOLEY_SPAWN_SUN);
+                mBoard->AddCoin(aPosX - 5, aPosY, CoinType::COIN_SILVER, CoinMotion::COIN_MOTION_COIN);
+                mBoard->AddCoin(aPosX + 5, aPosY, CoinType::COIN_SILVER, CoinMotion::COIN_MOTION_COIN);
+            } else if (mLaunchCounter == 4) {
+                mApp->PlayFoley(FoleyType::FOLEY_SPAWN_SUN);
+                mBoard->AddCoin(aPosX - 10, aPosY, CoinType::COIN_SILVER, CoinMotion::COIN_MOTION_COIN);
+                mBoard->AddCoin(aPosX, aPosY, CoinType::COIN_SILVER, CoinMotion::COIN_MOTION_COIN);
+                mBoard->AddCoin(aPosX + 10, aPosY, CoinType::COIN_SILVER, CoinMotion::COIN_MOTION_COIN);
+            } else if (mLaunchCounter >= 5) {
+                mApp->PlayFoley(FoleyType::FOLEY_SPAWN_SUN);
+                mBoard->AddCoin(aPosX, aPosY, CoinType::COIN_GOLD, CoinMotion::COIN_MOTION_COIN);
+            }
+        }
+
+        if (mSeedType != SeedType::SEED_GIANT_WALLNUT) {
+            if (mRow == 4 || mState == PlantState::STATE_BOWLING_DOWN) {
+                aNewState = PlantState::STATE_BOWLING_UP;
+            } else if (mRow == 0 || mState == PlantState::STATE_BOWLING_UP) {
+                aNewState = PlantState::STATE_BOWLING_DOWN;
+            } else {
+                aNewState = Sexy::Rand(2) ? PlantState::STATE_BOWLING_UP : PlantState::STATE_BOWLING_DOWN;
+            }
+        }
+    }
+
+    if (aNewState == PlantState::STATE_BOWLING_UP) {
+        mRow--;
+        mState = PlantState::STATE_BOWLING_UP;
+        mRenderOrder = CalcRenderOrder();
+    } else if (aNewState == PlantState::STATE_BOWLING_DOWN) {
+        mState = PlantState::STATE_BOWLING_DOWN;
+        mRenderOrder = CalcRenderOrder();
+        mRow++;
+    }
+
+    if (IsRemoteServer() && mApp->mGameScene == GameScenes::SCENE_PLAYING && !mDead && (mRow != aOldRow || mState != aOldState)) {
+        U16U8U8I16I16UNI32_Event event = {
+            {EventType::EVENT_SERVER_BOARD_PLANT_BOWLING_SET_ROW}, uint16_t(mBoard->mPlants.DataArrayGetID(this)), uint8_t(mRow), uint8_t(mState), int16_t(mX), int16_t(mY), {}};
+        event.data6.i32 = mRenderOrder;
+        netplay::PutEvent(event);
+    }
+}
+
 void Plant::UpdateAbilities() {
     if (!IsInPlay())
         return;
@@ -1265,6 +1388,18 @@ void Plant::DoSpecial_Origin() {
                 mState = PlantState::STATE_DOINGSPECIAL;
                 BlowAwayFliers(mX, mRow);
             }
+            break;
+        }
+        case SeedType::SEED_EXPLODE_O_NUT: {
+            mApp->PlayFoley(FoleyType::FOLEY_CHERRYBOMB);
+            mApp->PlaySample(SOUND_BOWLINGIMPACT2);
+
+            mBoard->KillAllZombiesInRadius(mRow, aPosX, aPosY, 90, 1, true, aDamageRangeFlags | 32U);
+
+            mApp->AddTodParticle(aPosX, aPosY, int(RenderLayer::RENDER_LAYER_TOP), ParticleEffect::PARTICLE_POWIE);
+            mBoard->ShakeBoard(3, -4);
+
+            Die();
             break;
         }
         case SeedType::SEED_CHERRYBOMB: {

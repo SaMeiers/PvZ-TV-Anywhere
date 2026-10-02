@@ -2329,6 +2329,20 @@ void Board::processServerEvent(const BaseEvent *event) {
             plant->mLaunchCounter = int(eventPlantAdd->data3);
             serverPlantIDMap[eventPlantAdd->data5.u16x2.u16_1] = uint16_t(mPlants.DataArrayGetID(plant));
         } break;
+        case EVENT_SERVER_BOARD_PLANT_BOWLING_SET_ROW: {
+            auto *eventBowling = static_cast<const U16U8U8I16I16UNI32_Event *>(event);
+            uint16_t clientPlantID = 0;
+            if (homura::FindInMap(serverPlantIDMap, eventBowling->data1, clientPlantID)) {
+                Plant *aPlant = mPlants.DataArrayGet(clientPlantID);
+                if (!aPlant->mDead) {
+                    aPlant->mRow = eventBowling->data2;
+                    aPlant->mState = static_cast<PlantState>(eventBowling->data3);
+                    aPlant->mX = eventBowling->data4;
+                    aPlant->mY = eventBowling->data5;
+                    aPlant->mRenderOrder = eventBowling->data6.i32;
+                }
+            }
+        } break;
         case EVENT_SERVER_BOARD_PLANT_IMITATER_MORPH: {
             auto *eventMorph = static_cast<const U16_Event *>(event);
             uint16_t clientPlantID = 0;
@@ -3344,6 +3358,19 @@ void Board::processServerEvent(const BaseEvent *event) {
             if (homura::FindInMap(serverZombieIDMap, serverZombieID, clientZombieID)) {
                 Zombie *aZombie = mZombies.DataArrayGet(clientZombieID);
                 aZombie->TakeDamage_Origin(damage, damageFlags);
+            }
+        } break;
+        case EVENT_SERVER_BOARD_ZOMBIE_TAKE_HELM_DAMAGE:
+        case EVENT_SERVER_BOARD_ZOMBIE_TAKE_SHIELD_DAMAGE: {
+            auto *eventArmorDamage = static_cast<const U16U16U8_Event *>(event);
+            uint16_t clientZombieID = 0;
+            if (homura::FindInMap(serverZombieIDMap, eventArmorDamage->data1, clientZombieID)) {
+                Zombie *aZombie = mZombies.DataArrayGet(clientZombieID);
+                if (event->type == EVENT_SERVER_BOARD_ZOMBIE_TAKE_HELM_DAMAGE) {
+                    aZombie->TakeHelmDamage(eventArmorDamage->data2, eventArmorDamage->data3);
+                } else {
+                    aZombie->TakeShieldDamage(eventArmorDamage->data2, eventArmorDamage->data3);
+                }
             }
         } break;
         case EVENT_SERVER_BOARD_ZOMBIE_DROP_HEAD: {

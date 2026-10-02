@@ -802,6 +802,7 @@ inline void *Plant_IsInPlayAddr;
 inline void *Plant_DrawMagnetItemsOnTopAddr;
 inline void *Plant_DrawMagnetItemsAddr;
 inline void *Plant_UpdateAbilitiesAddr;
+inline void *Plant_UpdateBowlingAddr;
 inline void *Plant_SquishAddr;
 inline void *Plant_AnimateAddr;
 inline void *Plant_UpdateNeedsFoodAddr;

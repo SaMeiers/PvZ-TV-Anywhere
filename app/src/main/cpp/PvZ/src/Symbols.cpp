@@ -800,6 +800,7 @@ bool LoadGameMain() {
     Plant_DrawMagnetItemsOnTopAddr = libGameMain.GetSymbol("_ZN5Plant20DrawMagnetItemsOnTopEv");
     Plant_DrawMagnetItemsAddr = libGameMain.GetSymbol("_ZN5Plant15DrawMagnetItemsEPN4Sexy8GraphicsE");
     Plant_UpdateAbilitiesAddr = libGameMain.GetSymbol("_ZN5Plant15UpdateAbilitiesEv");
+    Plant_UpdateBowlingAddr = libGameMain.GetSymbol("_ZN5Plant13UpdateBowlingEv");
     Plant_SquishAddr = libGameMain.GetSymbol("_ZN5Plant6SquishEv");
     Plant_AnimateAddr = libGameMain.GetSymbol("_ZN5Plant7AnimateEv");
     Plant_UpdateNeedsFoodAddr = libGameMain.GetSymbol("_ZN5Plant15UpdateNeedsFoodEv");
