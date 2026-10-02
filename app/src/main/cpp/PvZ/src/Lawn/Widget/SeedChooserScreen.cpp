@@ -1493,6 +1493,9 @@ void SeedChooserScreen::_constructor(bool theIsZombieChooser) {
 
     auto &buttonList = mButtons.Construct();
     mApp = reinterpret_cast<LawnApp *>(Sexy::gSexyAppBase);
+    if (IsRemoteClient() && mApp->IsVSMode() && mApp->mVSSetupMenu != nullptr) {
+        mApp->KillNewOptionsDialog();
+    }
     mBoard = mApp->mBoard;
     mBackToModeSelectButton = nullptr;
     mBackToModeSelectRequested = false;
