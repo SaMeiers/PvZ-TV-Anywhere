@@ -65,7 +65,7 @@ void dl_sym(GuestCall &c) {
         if (addr == 0) {
             for (uint32_t i = 0; i < c.img->trampoline_count; ++i) {
                 if (std::strcmp(c.img->trampoline_names[i], sym_name.c_str()) == 0) {
-                    addr = c.img->trampoline_base + i * 4;
+                    addr = c.img->trampoline_base + i * PVZ2_TRAMPOLINE_STRIDE;
                     break;
                 }
             }

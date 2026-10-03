@@ -3,12 +3,14 @@
 #include "runner_core.h"
 #include <pvz_tv/surface.h>
 #include <pvz_tv/config.h>
+#include <pvz_tv/runtime/jit_tuning.h>
 
 #include <dynarmic/interface/A32/a32.h>
 #include <dynarmic/interface/A32/config.h>
 #include <dynarmic/interface/exclusive_monitor.h>
 
 #include <android/log.h>
+#include <sys/system_properties.h>
 
 #include <algorithm>
 #include <array>
@@ -20,6 +22,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 #include <unistd.h>
 
@@ -54,6 +57,43 @@ struct ActiveJitInfo {
 
 static std::mutex g_jits_lock;
 static std::vector<ActiveJitInfo> g_active_jits;
+
+// A poor man's profiler for guest code, which no host profiler can name: with
+// `adb shell setprop debug.pvztv.sample 1` a thread reads every guest thread's
+// PC once a millisecond and logs the most frequent ones every ten seconds.
+// The PC a JIT keeps in memory is where its last block ended, which lands in
+// the function that block belongs to -- plenty to tell where time goes.
+// Resolve the addresses against the module bases logged at load.
+static void start_guest_sampler() {
+    char prop[PROP_VALUE_MAX] = {0};
+    if (__system_property_get("debug.pvztv.sample", prop) <= 0 || prop[0] == '0') return;
+    std::thread([] {
+        std::unordered_map<uint64_t, uint32_t> hist;
+        uint32_t samples = 0;
+        auto last = std::chrono::steady_clock::now();
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            {
+                std::lock_guard<std::mutex> lk(g_jits_lock);
+                for (auto &e : g_active_jits) {
+                    const uint32_t pc = e.jit->Regs()[15];
+                    if (pc < PVZ2_SO_BASE) continue; // parked in a host call
+                    ++hist[(uint64_t{e.tid} << 32) | pc];
+                }
+                ++samples;
+            }
+            const auto now = std::chrono::steady_clock::now();
+            if (now - last < std::chrono::seconds(10)) continue;
+            last = now;
+            std::vector<std::pair<uint64_t, uint32_t>> top(hist.begin(), hist.end());
+            std::sort(top.begin(), top.end(), [](const auto &a, const auto &b) { return a.second > b.second; });
+            LOGI("[sample] %u ticks, %zu distinct PCs; top:", samples, top.size());
+            for (size_t i = 0; i < top.size() && i < 80; ++i) {
+                LOGI("[sample] tid=%u pc=0x%08X n=%u", (uint32_t)(top[i].first >> 32), (uint32_t)top[i].first, top[i].second);
+            }
+        }
+    }).detach();
+}
 
 static void register_active_jit(uint32_t tid, const char *name, Dynarmic::A32::Jit *jit, PvzTvGuestEnv *env) {
     std::lock_guard<std::mutex> lk(g_jits_lock);
@@ -271,6 +311,16 @@ public:
     }
 
     void return_to_caller() {
+        // An import trampoline is `SVC #n; BX LR`, and the JIT is already
+        // headed for that BX LR: leaving the PC alone keeps both of its
+        // predictions (the SVC falling through, the BX LR popping the return
+        // stack) instead of sending every guest libc call to the dispatcher.
+        const uint32_t pc = jit->Regs()[15];
+        if (pc >= img->trampoline_base + 4 &&
+            pc < img->trampoline_base + img->trampoline_capacity * PVZ2_TRAMPOLINE_STRIDE &&
+            (pc - img->trampoline_base) % PVZ2_TRAMPOLINE_STRIDE == 4) {
+            return;
+        }
         uint32_t lr = jit->Regs()[14];
         jit->Regs()[15] = lr & ~1u;
         if ((lr & 1u) != 0) {
@@ -311,7 +361,7 @@ public:
             thread_config.processor_id = id;
             thread_config.page_table = page_table;
             thread_config.absolute_offset_page_table = true;
-            thread_config.optimizations = Dynarmic::all_safe_optimizations;
+            apply_jit_tuning(thread_config, *img);
 
             Dynarmic::A32::Jit thread_jit(thread_config);
             thread_env.jit = &thread_jit;
@@ -484,7 +534,7 @@ uint32_t PvzTvGuestEnv::run_guest_callback(uint32_t fn, const uint32_t *args, in
             nested_config.processor_id = slot->id;
             nested_config.page_table = page_table;
             nested_config.absolute_offset_page_table = true;
-            nested_config.optimizations = Dynarmic::all_safe_optimizations;
+            apply_jit_tuning(nested_config, *img);
 
             slot->jit = std::make_unique<Dynarmic::A32::Jit>(nested_config);
             slot->env->jit = slot->jit.get();
@@ -791,6 +841,9 @@ bool RunnerCore::init(const char *game_so_path, const char *data_dir) {
     }
 
     LOGI("Loaded %u modules into guest space", image_.module_count);
+    for (uint32_t i = 0; i < image_.module_count; ++i) {
+        LOGI("  module %s at 0x%08X (span 0x%X)", image_.modules[i].name, image_.modules[i].base, image_.modules[i].span);
+    }
 
     // Create pseudo_fs /proc/self/maps for libHomura GetLibBaseAddr
     std::filesystem::create_directories("pseudo_fs/proc/self");
@@ -814,6 +867,7 @@ bool RunnerCore::init(const char *game_so_path, const char *data_dir) {
         cmd_f.write("com.popcap.pvz\0", 15);
         cmd_f.close();
     }
+    vfs::write_pseudo_cpuinfo();
 
     runtime_.img = &image_;
     runtime_.heap.init(kHeapBase, kHeapSize);
@@ -849,7 +903,7 @@ bool RunnerCore::init(const char *game_so_path, const char *data_dir) {
     config.processor_id = 0;
     config.page_table = s_pageTable.get();
     config.absolute_offset_page_table = true;
-    config.optimizations = Dynarmic::all_safe_optimizations;
+    apply_jit_tuning(config, image_);
 
     s_main_jit = std::make_unique<Dynarmic::A32::Jit>(config);
     s_main_env->jit = s_main_jit.get();
@@ -928,6 +982,7 @@ bool RunnerCore::start() {
     s_main_thread = std::thread([this]() {
         guest_tls::self_id = 1;
         register_active_jit(1, "main", s_main_jit.get(), s_main_env.get());
+        start_guest_sampler();
 
         // Wait for NativeView ANativeWindow before starting game
         if (!android_runner_wait_for_window(5000)) {

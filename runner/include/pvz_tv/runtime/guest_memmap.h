@@ -36,7 +36,7 @@ namespace memmap {
 /* --- the loader's own two anchors ---------------------------------------- */
 
 constexpr std::uint32_t kTrampolineBase = PVZ2_TRAMPOLINE_BASE;
-constexpr std::uint32_t kTrampolineEnd = PVZ2_TRAMPOLINE_BASE + PVZ2_TRAMPOLINE_MAX * 4;
+constexpr std::uint32_t kTrampolineEnd = PVZ2_TRAMPOLINE_BASE + PVZ2_TRAMPOLINE_MAX * PVZ2_TRAMPOLINE_STRIDE;
 constexpr std::uint32_t kImageBase = PVZ2_SO_BASE;
 
 /* --- opaque JNI handles (jclass / jmethodID / jfieldID / jobject) --------- *

@@ -23,7 +23,14 @@ extern "C" {
  * static_asserts that they fit and do not overlap each other. */
 #define PVZ2_SO_BASE         0x00100000u
 #define PVZ2_TRAMPOLINE_BASE 0x00001000u
-#define PVZ2_TRAMPOLINE_MAX  4096u
+#define PVZ2_TRAMPOLINE_MAX  2048u
+/* Each import's trampoline is two ARM instructions, `SVC #idx; BX LR`, so the
+ * handler never has to move the PC: the JIT predicted the SVC falls through to
+ * the BX LR, and the BX LR returns through its return stack buffer. With a
+ * one-instruction trampoline the handler set PC = LR itself, which no
+ * prediction can follow -- every libc call the guest made went back out to the
+ * dispatcher for a hash lookup. */
+#define PVZ2_TRAMPOLINE_STRIDE 8u
 
 /* How many shared objects may share one emulated address space: libPVZ2.so plus
  * the DT_NEEDED libraries actually shipped beside it -- for Reflourished that is
@@ -93,6 +100,13 @@ typedef struct {
 typedef struct {
     uint8_t *mem;              /* flat buffer covering the whole emulated address space */
     uint32_t mem_size;
+    /* Non-zero when `mem` starts a full 4 GiB reservation, of which only the
+     * first mem_size (+ slack) bytes are accessible. Every 32-bit guest address
+     * then has a host address at mem + addr, which is what lets the JIT use
+     * fastmem: one host load or store per guest one, with addresses past
+     * mem_size faulting into Dynarmic's handler instead of the page table
+     * being consulted on every access. Zero means a plain heap allocation. */
+    uint8_t mem_reserved_4g;
 
     /* Every shared object mapped here. modules[0] is ALWAYS libPVZ2.so, and the
      * legacy single-image fields below (so_base, so_span, dynsym, dynstr, the

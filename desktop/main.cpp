@@ -34,6 +34,7 @@
 
 #include <pvz_tv/elf32/elf32_loader.h>
 #include <pvz_tv/runtime/guest_runtime.h>
+#include <pvz_tv/runtime/jit_tuning.h>
 #include <pvz_tv/runtime/guest_memmap.h>
 #include <pvz_tv/dependencies/dependency.h>
 #include <pvz_tv/surface.h>
@@ -219,6 +220,16 @@ public:
     }
 
     void return_to_caller() {
+        // An import trampoline is `SVC #n; BX LR`, and the JIT is already
+        // headed for that BX LR: leaving the PC alone keeps both of its
+        // predictions (the SVC falling through, the BX LR popping the return
+        // stack) instead of sending every guest libc call to the dispatcher.
+        const uint32_t pc = jit->Regs()[15];
+        if (pc >= img->trampoline_base + 4 &&
+            pc < img->trampoline_base + img->trampoline_capacity * PVZ2_TRAMPOLINE_STRIDE &&
+            (pc - img->trampoline_base) % PVZ2_TRAMPOLINE_STRIDE == 4) {
+            return;
+        }
         uint32_t lr = jit->Regs()[14];
         jit->Regs()[15] = lr & ~1u;
         if ((lr & 1u) != 0) {
@@ -275,7 +286,7 @@ public:
                 nested_config.processor_id = slot->id;
                 nested_config.page_table = page_table;
                 nested_config.absolute_offset_page_table = true;
-                nested_config.optimizations = Dynarmic::all_safe_optimizations;
+                pvz_tv::apply_jit_tuning(nested_config, *img);
 
                 slot->jit = std::make_unique<Dynarmic::A32::Jit>(nested_config);
                 slot->env->jit = slot->jit.get();
@@ -355,7 +366,7 @@ public:
             thread_config.processor_id = id;
             thread_config.page_table = page_table;
             thread_config.absolute_offset_page_table = true;
-            thread_config.optimizations = Dynarmic::all_safe_optimizations;
+            pvz_tv::apply_jit_tuning(thread_config, *img);
 
             Dynarmic::A32::Jit thread_jit(thread_config);
             thread_env.jit = &thread_jit;
@@ -920,6 +931,7 @@ int main(int argc, char *argv[]) {
         maps_f.close();
         printf("[+] Generated pseudo_fs/proc/self/maps for %u modules\n", image.module_count);
     }
+    pvz_tv::vfs::write_pseudo_cpuinfo();
 
     pvz_tv::GuestRuntime rt;
     rt.img = &image;
@@ -975,7 +987,7 @@ int main(int argc, char *argv[]) {
     config.processor_id = 0;
     config.page_table = pageTable.get();
     config.absolute_offset_page_table = true;
-    config.optimizations = Dynarmic::all_safe_optimizations;
+    pvz_tv::apply_jit_tuning(config, image);
 
     Dynarmic::A32::Jit jit(config);
     env.jit = &jit;

@@ -5,6 +5,57 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <sys/mman.h>
+#endif
+
+/* The emulated address space, reserved as 4 GiB of which only `usable` bytes
+ * are accessible (see mem_reserved_4g). Falls back to a plain allocation --
+ * and no fastmem -- where the reservation is refused. */
+#define PVZ2_GUEST_SPAN 0x100000000ull
+
+static uint8_t *alloc_guest_space(size_t usable, uint8_t *reserved_4g) {
+    *reserved_4g = 0;
+    if (sizeof(void *) >= 8) {
+#if defined(_WIN32)
+        uint8_t *base = (uint8_t *)VirtualAlloc(NULL, (SIZE_T)PVZ2_GUEST_SPAN, MEM_RESERVE, PAGE_NOACCESS);
+        if (base) {
+            if (VirtualAlloc(base, usable, MEM_COMMIT, PAGE_READWRITE)) {
+                *reserved_4g = 1;
+                return base;
+            }
+            VirtualFree(base, 0, MEM_RELEASE);
+        }
+#else
+        void *base = mmap(NULL, (size_t)PVZ2_GUEST_SPAN, PROT_NONE,
+                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+        if (base != MAP_FAILED) {
+            if (mprotect(base, usable, PROT_READ | PROT_WRITE) == 0) {
+                *reserved_4g = 1;
+                return (uint8_t *)base;
+            }
+            munmap(base, (size_t)PVZ2_GUEST_SPAN);
+        }
+#endif
+    }
+    return (uint8_t *)calloc(1, usable);
+}
+
+static void free_guest_space(uint8_t *mem, uint8_t reserved_4g) {
+    if (!mem) return;
+    if (!reserved_4g) {
+        free(mem);
+        return;
+    }
+#if defined(_WIN32)
+    VirtualFree(mem, 0, MEM_RELEASE);
+#else
+    munmap(mem, (size_t)PVZ2_GUEST_SPAN);
+#endif
+}
+
 /* PVZ2_SO_BASE, PVZ2_TRAMPOLINE_BASE and PVZ2_TRAMPOLINE_MAX are declared in
  * elf32_loader.h so runtime/guest_memmap.h can assert that the harness structures
  * placed between the trampolines and the image do not collide with either. */
@@ -54,7 +105,7 @@ static char *dup_str(const char *s) {
 static uint32_t get_or_create_trampoline(pvz2_elf_image_t *img, const char *name) {
     for (uint32_t i = 0; i < img->trampoline_count; ++i) {
         if (strcmp(img->trampoline_names[i], name) == 0) {
-            return img->trampoline_base + i * 4;
+            return img->trampoline_base + i * PVZ2_TRAMPOLINE_STRIDE;
         }
     }
     if (img->trampoline_count >= img->trampoline_capacity) {
@@ -65,8 +116,10 @@ static uint32_t get_or_create_trampoline(pvz2_elf_image_t *img, const char *name
     }
     uint32_t idx = img->trampoline_count++;
     img->trampoline_names[idx] = dup_str(name);
-    write32(img->mem + img->trampoline_base + idx * 4, 0xEF000000u | (idx & 0x00FFFFFFu)); /* SVC #idx */
-    return img->trampoline_base + idx * 4;
+    const uint32_t at = img->trampoline_base + idx * PVZ2_TRAMPOLINE_STRIDE;
+    write32(img->mem + at, 0xEF000000u | (idx & 0x00FFFFFFu)); /* SVC #idx */
+    write32(img->mem + at + 4, 0xE12FFF1Eu);                   /* BX LR */
+    return at;
 }
 
 /* Public wrapper -- see the header. Deduplication by name is what we want here
@@ -534,7 +587,7 @@ int pvz2_elf_load(const char *path, uint32_t space_size, pvz2_elf_image_t *out) 
     uint32_t so_span = 0;
     if (peek_load_span(path, &so_span) != 0) return -1;
 
-    uint32_t trampoline_bytes = PVZ2_TRAMPOLINE_MAX * 4;
+    uint32_t trampoline_bytes = PVZ2_TRAMPOLINE_MAX * PVZ2_TRAMPOLINE_STRIDE;
     uint32_t required = PVZ2_SO_BASE + so_span;
     if (required < PVZ2_TRAMPOLINE_BASE + trampoline_bytes) {
         required = PVZ2_TRAMPOLINE_BASE + trampoline_bytes;
@@ -551,7 +604,7 @@ int pvz2_elf_load(const char *path, uint32_t space_size, pvz2_elf_image_t *out) 
      * re-checking the end of the buffer -- so an unaligned 8-byte load in the
      * very last guest page would read a few bytes past the allocation. The
      * slack absorbs that; mem_size still describes the addressable space. */
-    out->mem = (uint8_t *)calloc(1, (size_t)space_size + PVZ2_MEM_GUARD_SLACK);
+    out->mem = alloc_guest_space((size_t)space_size + PVZ2_MEM_GUARD_SLACK, &out->mem_reserved_4g);
     if (!out->mem) {
         fprintf(stderr, "elf32_loader: failed to allocate %u bytes of emulated address space\n", space_size);
         return -1;
@@ -567,6 +620,7 @@ int pvz2_elf_load(const char *path, uint32_t space_size, pvz2_elf_image_t *out) 
     out->trampoline_names[0] = dup_str("$halt");
     out->trampoline_count = 1;
     write32(out->mem + out->trampoline_base, 0xEF000000u);
+    write32(out->mem + out->trampoline_base + 4, 0xE12FFF1Eu);
 
     /* --- map the main image, then everything it needs that ships with it --- */
     uint32_t entry = 0;
@@ -729,6 +783,6 @@ void pvz2_elf_free(pvz2_elf_image_t *img) {
     for (uint32_t i = 0; i < img->data_import_count; ++i) {
         free(img->data_import_names[i]);
     }
-    free(img->mem);
+    free_guest_space(img->mem, img->mem_reserved_4g);
     memset(img, 0, sizeof(*img));
 }
