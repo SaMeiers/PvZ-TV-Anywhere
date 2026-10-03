@@ -4774,6 +4774,31 @@ bool Board::IsLastStandFinalStage() const {
 
 Plant *Board::GetFlowerPotAt(int theGridX, int theGridY) {
     // 修复 屋顶关卡加农炮无法种植在第三第四列的组合上
+    // 每次射击都会调用本函数并遍历所有植物；大多数场地上根本没有花盆，所以只在每次更新或新种植物后检查一次是否存在花盆。
+    // Every shot a plant fires asks this, and each call walks every plant;
+    // most lawns have no flower pot at all, so check that once per update,
+    // and again whenever a plant is created (mNextKey moves on every one).
+    static const Board *sCheckedBoard = nullptr;
+    static int sCheckedCounter = -1;
+    static uint32_t sCheckedNextKey = 0;
+    static bool sHasFlowerPot = true;
+    if (sCheckedBoard != this || sCheckedCounter != mMainCounter || sCheckedNextKey != mPlants.mNextKey) {
+        sCheckedBoard = this;
+        sCheckedCounter = mMainCounter;
+        sCheckedNextKey = mPlants.mNextKey;
+        sHasFlowerPot = false;
+        Plant *aScan = nullptr;
+        while (IteratePlants(aScan)) {
+            if (aScan->mSeedType == SeedType::SEED_FLOWERPOT) {
+                sHasFlowerPot = true;
+                break;
+            }
+        }
+    }
+    if (!sHasFlowerPot) {
+        return nullptr;
+    }
+
     Plant *aPlant = nullptr;
     while (IteratePlants(aPlant)) {
         if (aPlant->mSeedType == SeedType::SEED_FLOWERPOT && aPlant->mRow == theGridY && aPlant->mPlantCol == theGridX && !aPlant->NotOnGround()) {

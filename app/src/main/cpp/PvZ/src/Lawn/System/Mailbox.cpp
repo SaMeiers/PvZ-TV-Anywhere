@@ -22,6 +22,8 @@
 #include "PvZ/Lawn/LawnApp.h"
 #include "PvZ/Lawn/System/PlayerInfo.h"
 
+#include <cstring>
+
 int Mailbox::GetNumUnseenMessages() {
     if (!mApp || !mApp->mPlayerInfo) {
         return 0;
@@ -40,6 +42,23 @@ int Mailbox::GetNumUnseenMessages() {
     }
 
     const auto *seenBitsBase = reinterpret_cast<const unsigned char *>(playerInfo) + 1875;
+
+    // 主菜单每帧都会调用本函数，逐条读取 256 封邮件的开销很大；结果只取决于存档、关卡、已读标记和邮件列表，
+    // 这些不变时直接返回上次的结果。游戏内部也可能刷新邮件列表，所以每 64 次调用仍重新计算一次。
+    // The main menu asks every frame, and walking all 256 messages costs far
+    // more than it is worth; the answer only depends on the profile, its level,
+    // the seen bits and the message list, so reuse it while those stay the
+    // same. The game can refresh the list on its own, so still recount every
+    // 64 calls.
+    static unsigned sCallsSinceCount = 0;
+    static const Mailbox *sCachedMailbox = nullptr;
+    static const LawnPlayerInfo *sCachedPlayer = nullptr;
+    static int sCachedLevelGate = -1;
+    static unsigned char sCachedSeenBits[32];
+    static int sCachedUnseen = 0;
+    if (++sCallsSinceCount < 64 && sCachedMailbox == this && sCachedPlayer == playerInfo && sCachedLevelGate == levelGate && memcmp(sCachedSeenBits, seenBitsBase, sizeof(sCachedSeenBits)) == 0) {
+        return sCachedUnseen;
+    }
 
     for (int block = 0; block < 32; ++block) {
         for (int i = 0; i < 8; ++i) {
@@ -67,5 +86,11 @@ int Mailbox::GetNumUnseenMessages() {
         }
     }
 
+    sCallsSinceCount = 0;
+    sCachedMailbox = this;
+    sCachedPlayer = playerInfo;
+    sCachedLevelGate = levelGate;
+    memcpy(sCachedSeenBits, seenBitsBase, sizeof(sCachedSeenBits));
+    sCachedUnseen = unseenCount;
     return unseenCount;
 }
