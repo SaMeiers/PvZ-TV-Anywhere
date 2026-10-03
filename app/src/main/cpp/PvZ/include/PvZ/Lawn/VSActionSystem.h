@@ -14,11 +14,12 @@
 
 #include "PvZ/NetPlay.h"
 
-#include <cstdint>
 #include <array>
 #include <memory>
 #include <optional>
 #include <vector>
+
+#include <cstdint>
 
 class Board;
 

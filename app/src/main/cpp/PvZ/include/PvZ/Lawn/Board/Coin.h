@@ -118,6 +118,7 @@ public:
     void GamepadCursorOver(int thePlayerIndex);
     void Update();
     void PlayCollectSound();
+    void FanOutCoins(CoinType theCoinType, int theNumCoins);
     void ScoreCoin();
     void UpdateCollected();
     void UpdateFallForAward();
@@ -141,6 +142,8 @@ inline void (*old_Coin_CoinInitialize)(Coin *, int theX, int theY, CoinType theC
 inline void (*old_Coin_GamepadCursorOver)(Coin *coin, int a2);
 
 inline void (*old_Coin_Update)(Coin *coin);
+
+inline void (*old_Coin_FanOutCoins)(Coin *coin, CoinType theCoinType, int theNumCoins);
 
 inline void (*old_Coin_UpdateFall)(Coin *coin);
 

@@ -26,8 +26,8 @@
 #include "PvZ/Lawn/Common/ConstEnums.h"
 #include "PvZ/Lawn/LawnApp.h"
 #include "PvZ/Lawn/Widget/ChallengeScreen.h"
+#include "PvZ/Lawn/Widget/NetplayLobbyWidget.h"
 #include "PvZ/Lawn/Widget/SeedChooserScreen.h"
-#include "PvZ/Lawn/Widget/WaitForSecondPlayerDialog.h"
 #include "PvZ/SexyAppFramework/Widget/WidgetManager.h"
 #include "PvZ/TodLib/Effect/Reanimator.h"
 
@@ -56,11 +56,10 @@ void CutScene::Update() {
     if (mPreUpdatingBoard)
         return;
     if (mApp->mGameMode == GameMode::GAMEMODE_ADVENTURE_TWO_PLAYER || mApp->IsCoopMode()) {
-        if (mApp->mSecondPlayerGamepadIndex == -1 && !mApp->GetDialog(Dialogs::DIALOG_CONTINUE) && !mApp->GetDialog(Dialogs::DIALOG_WAIT_FOR_SECOND_PLAYER)) {
+        if (mApp->mSecondPlayerGamepadIndex == -1 && !mApp->GetDialog(Dialogs::DIALOG_CONTINUE) && NetplayLobbyWidget::GetInstance() == nullptr) {
             mApp->SetSecondPlayer(1);
-            // 未来做结盟联机时，可恢复显示WaitForSecondPlayerDialog
+            // 未来做结盟联机时，可在此打开联机大厅。
 
-            //            auto *aDialog = new WaitForSecondPlayerDialog(mApp);
             //            mApp->AddDialog(aDialog);
             //            mApp->mWidgetManager->SetFocus(aDialog);
             //
@@ -182,20 +181,21 @@ void CutScene::PlaceLawnItems() {
     }
 
     if (mApp->IsVSMode()) {
+        // 对战固定开局植物由两端初始化，正式开局再同步 ID；不走运行期 AddPlant 的客户端拦截。
         int aNumRows = mBoard->StageHas6Rows() ? 6 : 5;
         SeedType aSunPlantType = mBoard->StageIsNight() ? SeedType::SEED_SUNSHROOM : SeedType::SEED_SUNFLOWER;
         for (int aRow = 0; aRow < aNumRows; ++aRow) {
             mBoard->AddMPTarget(8, aRow);
             if ((aRow == 1 || aRow == aNumRows - 2) || mBoard->StageIsNight()) { // 黑夜种满一列
                 mBoard->AddAGraveStone(8, aRow);
-                Plant *aPlant = mBoard->AddPlant(0, aRow, aSunPlantType, SeedType::SEED_NONE, -1, true);
+                Plant *aPlant = mBoard->AddPlant_Origin(0, aRow, aSunPlantType, SeedType::SEED_NONE, -1, true);
                 if (aSunPlantType == SeedType::SEED_SUNSHROOM) {
                     aPlant->mStateCountdown = 0;
                 }
             }
             if (mBoard->StageHasPool() && (aRow == 2 || aRow == 3)) {
                 for (int aCol = 0; aCol < 4; ++aCol) {
-                    mBoard->AddPlant(aCol, aRow, SeedType::SEED_LILYPAD, SeedType::SEED_NONE, -1, true);
+                    mBoard->AddPlant_Origin(aCol, aRow, SeedType::SEED_LILYPAD, SeedType::SEED_NONE, -1, true);
                 }
             }
         }

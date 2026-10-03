@@ -27,12 +27,14 @@
 #include "PvZ/Lawn/Common/GameConstants.h"
 #include "PvZ/Lawn/GamepadControls.h"
 #include "PvZ/Lawn/LawnApp.h"
+#include "PvZ/NetPlay.h"
 #include "PvZ/TodLib/Common/TodStringFile.h"
 #include "PvZ/TodLib/Effect/Attachment.h"
 #include "PvZ/TodLib/Effect/Reanimator.h"
 
-#include <cmath>
 #include <algorithm>
+
+#include <cmath>
 
 using namespace Sexy;
 
@@ -164,6 +166,13 @@ void Coin::PlayCollectSound() {
     if (IsDeath()) {
         mApp->PlayFoley(FoleyType::FOLEY_SLURP);
     }
+}
+
+void Coin::FanOutCoins(CoinType theCoinType, int theNumCoins) {
+    if (IsRemoteClientOrViewer()) {
+        return;
+    }
+    old_Coin_FanOutCoins(this, theCoinType, theNumCoins);
 }
 
 void Coin::ScoreCoin() {

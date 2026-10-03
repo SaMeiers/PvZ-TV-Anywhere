@@ -30,9 +30,10 @@
 #include "PvZ/Symbols.h"
 #include "PvZ/TodLib/Common/TodStringFile.h"
 
-#include <cstring>
 #include <iterator>
 #include <mutex>
+
+#include <cstring>
 
 using namespace Sexy;
 

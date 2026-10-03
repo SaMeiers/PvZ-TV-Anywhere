@@ -292,8 +292,40 @@ public:
     void CheckForHighGround() {
         reinterpret_cast<void (*)(Zombie *)>(Zombie_CheckForHighGroundAddr)(this);
     }
-    void UpdateBoss() {
-        reinterpret_cast<void (*)(Zombie *)>(Zombie_UpdateBossAddr)(this);
+    void UpdateBoss();
+    void UpdateBossFireball();
+    void BossPlayIdle();
+    void BossPlayIdle_Origin();
+    void BossRVAttack();
+    void BossRVAttack_Origin(int theRow = -1, int theCol = -1);
+    void BossRVLanding();
+    void BossRVLanding_Origin();
+    void BossSpawnAttack();
+    void BossSpawnAttack_Origin(int theRow = -1);
+    void BossSpawnContact();
+    void BossStompAttack();
+    void BossStompAttack_Origin(int theRow = -1);
+    bool BossCanStompRow(int theRow);
+    void BossStompContact();
+    void BossStompContact_Origin();
+    void BossBungeeAttack();
+    void BossBungeeAttack_Origin(int theCol = -1);
+    void BossBungeeSpawn();
+    bool BossAreBungeesDone();
+    void BossBungeeLeave();
+    void BossBungeeLeave_Origin();
+    void BossHeadAttack();
+    void BossHeadAttack_Origin();
+    void BossHeadSpit();
+    void BossHeadSpit_Origin(int theRow = -1, int theIsFireBall = -1);
+    void BossHeadSpitEffect();
+    void BossHeadSpitEffect_Origin();
+    void BossHeadSpitContact();
+    void BossHeadSpitContact_Origin();
+    void BossStartDeath();
+    void BossStartDeath_Origin();
+    void PickBungeeZombieTarget(int theCol) {
+        reinterpret_cast<void (*)(Zombie *, int)>(Zombie_PickBungeeZombieTargetAddr)(this, theCol);
     }
     void PogoBreak(unsigned int theDamageFlags) {
         reinterpret_cast<void (*)(Zombie *, unsigned int)>(Zombie_PogoBreakAddr)(this, theDamageFlags);
@@ -325,9 +357,7 @@ public:
     bool SetupDrawZombieWon(Sexy::Graphics *g) {
         return reinterpret_cast<bool (*)(Zombie *, Sexy::Graphics *)>(Zombie_SetupDrawZombieWonAddr)(this, g);
     }
-    void BossDie() {
-        reinterpret_cast<void (*)(Zombie *)>(Zombie_BossDieAddr)(this);
-    }
+    void BossDie();
     void TrySpawnLevelAward() {
         reinterpret_cast<void (*)(Zombie *)>(Zombie_TrySpawnLevelAwardAddr)(this);
     }
@@ -454,7 +484,6 @@ public:
     static bool IsZombotany(ZombieType theZombieType);
     static bool IsZomblob(ZombieType theZombieType);
     static bool ZombieTypeCanGoInPool(ZombieType theZombieType);
-    void BossSpawnAttack();
     void DrawBungeeCord(Sexy::Graphics *graphics, int theOffsetX, int theOffsetY);
     bool IsTangleKelpTarget();
     bool HasYuckyFaceImage();

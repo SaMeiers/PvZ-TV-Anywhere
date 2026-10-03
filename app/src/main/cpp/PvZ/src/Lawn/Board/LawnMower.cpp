@@ -22,11 +22,33 @@
 #include "PvZ/GlobalVariable.h"
 #include "PvZ/Lawn/LawnApp.h"
 #include "PvZ/NetPlay.h"
+#include "PvZ/TodLib/Effect/Reanimator.h"
 
 void LawnMower::Update() {
     if (!requestPause || (IsOnlineServerModeActive() && !gIsReplayMode)) {
         old_LawnMower_Update(this);
     }
+}
+
+void LawnMower::SquishMower() {
+    if (IsRemoteClientOrViewer())
+        return;
+
+    if (mApp->mGameScene == SCENE_PLAYING && IsRemoteServer()) {
+        U16_Event event = {{EventType::EVENT_SERVER_BOARD_LAWNMOWER_SQUISH}, uint16_t(mRow)};
+        netplay::PutEvent(event);
+    }
+
+    SquishMower_Origin();
+}
+
+void LawnMower::SquishMower_Origin() {
+    Reanimation *aMowerReanim = mApp->ReanimationGet(mReanimID);
+    aMowerReanim->OverrideScale(0.85f, 0.22f);
+    aMowerReanim->SetPosition(-11.0f, 65.0f);
+    mMowerState = LawnMowerState::MOWER_SQUISHED;
+    mSquishedCounter = 500;
+    mApp->PlayFoley(FoleyType::FOLEY_SQUISH);
 }
 
 void LawnMower::StartMower() {

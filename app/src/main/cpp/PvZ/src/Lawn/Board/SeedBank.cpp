@@ -27,6 +27,7 @@
 #include "PvZ/Lawn/LawnApp.h"
 #include "PvZ/Lawn/Widget/SeedChooserScreen.h"
 #include "PvZ/Lawn/Widget/VSSetupMenu.h"
+#include "PvZ/NetPlay.h"
 #include "PvZ/SexyAppFramework/Graphics/Graphics.h"
 #include "PvZ/Symbols.h"
 
@@ -281,6 +282,41 @@ void SeedBank::EndDraw(Sexy::Graphics *g) {
     old_SeedBank_EndDraw(this, g);
 }
 
-void SeedBank::AddSeed(int a2, int a3) {
-    old_SeedBank_AddSeed(this, a2, a3);
+void SeedBank::AddSeed(SeedType theSeedType, bool thePlaceOnLeft) {
+    if (IsRemoteClientOrViewer()) {
+        return;
+    }
+
+    const int aSeedIndex = GetNumSeedsOnConveyorBelt();
+    if (aSeedIndex >= mNumPackets) {
+        return;
+    }
+
+    AddSeed_Origin(theSeedType, thePlaceOnLeft);
+    if (IsRemoteServer()) {
+        U8U8U16_Event event = {{EventType::EVENT_SERVER_BOARD_SEEDBANK_ADDSEED}, uint8_t(this == mBoard->mSeedBank[1]), uint8_t(theSeedType), uint16_t(mSeedPackets[aSeedIndex].mOffsetY)};
+        netplay::PutEvent(event);
+    }
+}
+
+void SeedBank::AddSeed_Origin(SeedType theSeedType, bool thePlaceOnLeft) {
+    const int aSeedIndex = GetNumSeedsOnConveyorBelt();
+    if (aSeedIndex >= mNumPackets) {
+        return;
+    }
+
+    SeedPacket &aPacket = mSeedPackets[aSeedIndex];
+    aPacket.mPacketType = theSeedType;
+    aPacket.mSeedBank = this;
+    aPacket.mActive = true;
+    aPacket.mOffsetY = (mApp->IsCoopMode() ? 341 : 515) - 51 * aSeedIndex;
+    aPacket.mRefreshCounter = 0;
+    aPacket.mRefreshTime = 0;
+    aPacket.mRefreshing = false;
+    if (thePlaceOnLeft) {
+        aPacket.mOffsetY = 0;
+    }
+    if (aSeedIndex > 0 && aPacket.mOffsetY < mSeedPackets[aSeedIndex - 1].mOffsetY) {
+        aPacket.mOffsetY = mSeedPackets[aSeedIndex - 1].mOffsetY + 40;
+    }
 }

@@ -44,21 +44,7 @@ VSSetupAddonWidget::VSSetupAddonWidget(VSSetupMenu *theVSSetupMenu) {
         msGlobalBpSeedsInitialized = true;
     }
 
-    mBackButton = MakeNewButton(VSSetupAddonWidget::VSSetupAddonWidget_Back,
-                                mButtonListener,
-                                theVSSetupMenu,
-                                "[BACK_TO_MODE_SELECT]",
-                                nullptr,
-                                Sexy::IMAGE_SEEDCHOOSER_BUTTON_DISABLED,
-                                Sexy::IMAGE_SEEDCHOOSER_BUTTON_GLOW,
-                                Sexy::IMAGE_SEEDCHOOSER_BUTTON_GLOW);
-    mBackButton->mTextOffsetX = -2;
-    mBackButton->mTextOffsetY = -4;
-    mBackButton->mTextDownOffsetX = 1;
-    mBackButton->mTextDownOffsetY = 1;
-    mBackButton->SetFont(Sexy::FONT_DWARVENTODCRAFT18);
-    (*mBackButton->mColors)[ButtonWidget::COLOR_LABEL] = Color(0, 205, 0);
-    mBackButton->Resize(800, 540, 160, 50);
+    mBackButton = MakeModeSelectBackButton(VSSetupAddonWidget_Back, mButtonListener, theVSSetupMenu);
     mBoard->AddWidget(mBackButton);
 
     mGlobalBpButton = MakeButton(VSSetupAddonWidget::VSSetupAddonWidget_GlobalBP, mButtonListener, theVSSetupMenu, "[VS_UI_GLOBAL_BP_CLOSED]");
@@ -211,9 +197,7 @@ void VSSetupAddonWidget::UpdateGlobalBpButtonState() const {
 
 void VSSetupAddonWidget::ButtonDepress(this VSSetupAddonWidget &self, int theId) {
     if (theId == VSSetupAddonWidget_Back) {
-        self.mApp->mVSSetupMenu->CloseVSSetup(true);
-        self.mApp->KillBoard();
-        self.mApp->ShowChallengeScreen(ChallengePage::CHALLENGE_PAGE_VS);
+        self.mApp->ReturnToModeSelect();
         return;
     }
     if (theId == VSSetupAddonWidget_GlobalBP) {

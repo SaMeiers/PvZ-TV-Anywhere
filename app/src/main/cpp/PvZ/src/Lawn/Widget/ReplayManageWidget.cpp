@@ -29,7 +29,7 @@
 #include "PvZ/Lawn/LawnApp.h"
 #include "PvZ/Lawn/Widget/ChallengeScreen.h"
 #include "PvZ/Lawn/Widget/GameButton.h"
-#include "PvZ/Lawn/Widget/WaitForSecondPlayerDialog.h"
+#include "PvZ/Lawn/Widget/NetplayLobbyWidget.h"
 #include "PvZ/NetPlay.h"
 #include "PvZ/ReplaySystem.h"
 #include "PvZ/SexyAppFramework/Widget/ButtonListener.h"
@@ -248,7 +248,9 @@ ReplayManageWidget::ReplayManageWidget(LawnApp *app, ButtonListener *buttonListe
 
     mApp = app;
     mButtonListener = buttonListener;
-    Resize(LawnApp::FULLSCREEN_RECT.mX, LawnApp::FULLSCREEN_RECT.mY, LawnApp::FULLSCREEN_RECT.mWidth, LawnApp::FULLSCREEN_RECT.mHeight);
+    // ReplayManageWidget is a child of NetplayLobbyWidget, so its position is
+    // relative to the lobby rather than the screen's fullscreen offset.
+    Resize(0, 0, LawnApp::FULLSCREEN_RECT.mWidth, LawnApp::FULLSCREEN_RECT.mHeight);
     mClip = true;
 
     mScrollWidget = new ScrollWidget();
@@ -440,10 +442,10 @@ void ReplayManageWidget::StartReplayByIndex(int index) const {
     gIsReplayMode = true;
     LOG_INFO("[REPLAY] start playback success file={}", item.filePath);
 
-    if (auto *dialog = static_cast<WaitForSecondPlayerDialog *>(mApp->GetDialog(DIALOG_WAIT_FOR_SECOND_PLAYER))) {
-        LOG_INFO("[REPLAY] closing replay manager via WaitForSecondPlayerDialog");
+    if (auto *dialog = NetplayLobbyWidget::GetInstance()) {
+        LOG_INFO("[REPLAY] closing replay manager via NetplayLobbyWidget");
         dialog->CloseReplayManageWidget();
-        dialog->LawnDialog::ButtonDepress(1000);
+        dialog->RequestClose(NetplayLobbyWidget::NetplayLobbyWidget_Enter);
     }
 
     switch (item.vsBackground) {

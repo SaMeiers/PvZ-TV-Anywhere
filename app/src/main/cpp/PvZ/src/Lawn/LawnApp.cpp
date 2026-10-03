@@ -18,24 +18,26 @@
  */
 
 #include "PvZ/Lawn/LawnApp.h"
+
 #include "Homura/Assert.h"
 #include "Homura/Logger.h"
 #include "PvZ/GlobalVariable.h"
 #include "PvZ/Lawn/Board/Board.h"
 #include "PvZ/Lawn/Board/Challenge.h"
 #include "PvZ/Lawn/Board/CutScene.h"
+#include "PvZ/Lawn/GamepadControls.h"
 #include "PvZ/Lawn/System/Music.h"
 #include "PvZ/Lawn/System/SaveGame.h"
 #include "PvZ/Lawn/System/TypingCheck.h"
 #include "PvZ/Lawn/Widget/ChallengeScreen.h"
 #include "PvZ/Lawn/Widget/ConfirmBackToMainDialog.h"
 #include "PvZ/Lawn/Widget/MainMenu.h"
+#include "PvZ/Lawn/Widget/NetplayLobbyWidget.h"
 #include "PvZ/Lawn/Widget/SeedChooserScreen.h"
 #include "PvZ/Lawn/Widget/SettingsDialog.h"
 #include "PvZ/Lawn/Widget/TitleScreen.h"
 #include "PvZ/Lawn/Widget/VSResultsMenu.h"
 #include "PvZ/Lawn/Widget/VSSetupMenu.h"
-#include "PvZ/Lawn/Widget/WaitForSecondPlayerDialog.h"
 #include "PvZ/NetPlay.h"
 #include "PvZ/ReplaySystem.h"
 #include "PvZ/STL/string.h"
@@ -49,10 +51,11 @@
 
 #include <unistd.h>
 
-#include <cstdint>
 #include <algorithm>
 #include <limits>
 #include <ranges>
+
+#include <cstdint>
 
 using namespace Sexy;
 
@@ -471,6 +474,12 @@ void LawnApp::OnSessionTaskFailed() {
 int LawnApp::GamepadToPlayerIndex(unsigned int thePlayerIndex) const {
     // 实现双人结盟中1P选卡选满后自动切换为2P选卡DoConfirmBackToMain
     if (IsCoopMode()) {
+        if (IsRemoteClient()) {
+            return 1;
+        }
+        if (IsRemoteServer()) {
+            return 0;
+        }
         return !m1PChoosingSeeds;
     }
 
@@ -527,14 +536,16 @@ void LawnApp::HandleTcpClientMessage(const std::byte *buf, size_t bufSize) {
         } else if (event->type >= EVENT_SERVER_VSSETUPMENU_BUTTON_DEPRESS && event->type < NUM_EVENT_VSSETUPMENU) {
             if (mVSSetupMenu != nullptr) {
                 mVSSetupMenu->processClientEvent(event);
+            } else if (IsCoopMode() && mSeedChooserScreen != nullptr) {
+                mSeedChooserScreen->ProcessCoopClientEvent(event);
             }
         } else if (event->type >= EVENT_CLIENT_VSRESULT_BUTTON_DEPRESS && event->type < NUM_EVENT_VSRESULT) {
             if (mVSResultsMenu != nullptr) {
                 mVSResultsMenu->processClientEvent(event);
             }
         } else if (event->type >= EVENT_SERVER_WAITFORSECONDPALYER_VERSION_CHECK && event->type < NUM_EVENT_WAITFORSECONDPALYER) {
-            if (auto *dialog = GetDialog(DIALOG_WAIT_FOR_SECOND_PLAYER)) {
-                static_cast<WaitForSecondPlayerDialog *>(dialog)->processClientEvent(event);
+            if (auto *dialog = NetplayLobbyWidget::GetInstance()) {
+                dialog->ProcessClientEvent(event);
             }
         } else {
             throw std::runtime_error{std::format("Unknown-type event (type = {}, size = {})", int(event->type), event->size)};
@@ -548,7 +559,7 @@ void LawnApp::HandleTcpClientMessage(const std::byte *buf, size_t bufSize) {
 
 void LawnApp::HandleTcpServerMessage(const std::byte *buf, size_t bufSize) {
     serverRecvBuffer.append_range(std::views::counted(buf, bufSize));
-    auto *waitDialog = WaitForSecondPlayerDialog::GetInstance();
+    auto *waitDialog = NetplayLobbyWidget::GetInstance();
     size_t offset = 0;
 
     while (serverRecvBuffer.size() >= offset + sizeof(BaseEvent)) {
@@ -565,7 +576,7 @@ void LawnApp::HandleTcpServerMessage(const std::byte *buf, size_t bufSize) {
 
         if (waitDialog != nullptr && waitDialog->ServerIsWaitingReservedSpectate()) {
             if (event->type == EVENT_SERVER_VSSETUPMENU_SYNC_VS_MODE) {
-                waitDialog->processServerEvent(event);
+                waitDialog->ProcessServerEvent(event);
             }
             offset += event->size;
             continue;
@@ -627,7 +638,7 @@ void LawnApp::HandleTcpServerMessage(const std::byte *buf, size_t bufSize) {
                 }
             }
         } else if (waitDialog != nullptr && event->type == EVENT_SERVER_VSSETUPMENU_SYNC_VS_MODE && gIsServerModeSpectator) {
-            waitDialog->processServerEvent(event);
+            waitDialog->ProcessServerEvent(event);
         } else if (event->type >= EVENT_SERVER_VSSETUPMENU_BUTTON_DEPRESS && event->type < NUM_EVENT_VSSETUPMENU) {
             if (mVSSetupMenu != nullptr) {
                 const bool spectatorClientVsSetupEvent = (gIsServerModeSpectator || gIsReplayMode)
@@ -639,10 +650,12 @@ void LawnApp::HandleTcpServerMessage(const std::byte *buf, size_t bufSize) {
                 } else {
                     mVSSetupMenu->processServerEvent(event);
                 }
+            } else if (IsCoopMode() && mSeedChooserScreen != nullptr) {
+                mSeedChooserScreen->ProcessCoopServerEvent(event);
             }
         } else if (event->type >= EVENT_SERVER_WAITFORSECONDPALYER_VERSION_CHECK && event->type < NUM_EVENT_WAITFORSECONDPALYER) {
             if (waitDialog != nullptr) {
-                waitDialog->processServerEvent(event);
+                waitDialog->ProcessServerEvent(event);
             }
         } else if (event->type >= EVENT_CLIENT_VSRESULT_BUTTON_DEPRESS && event->type < NUM_EVENT_VSRESULT) {
             if (mVSResultsMenu != nullptr) {
@@ -739,7 +752,7 @@ void LawnApp::UpdateFrames() {
                 ResetNetDelayState();
                 if (mVSResultsMenu != nullptr) {
                     mVSResultsMenu->HandleOpponentDisconnected();
-                } else if (!GetDialog(DIALOG_WAIT_FOR_SECOND_PLAYER)) {
+                } else if (NetplayLobbyWidget::GetInstance() == nullptr) {
                     if (gTcpListenSocket >= 0) {
                         close(gTcpListenSocket);
                         gTcpListenSocket = -1;
@@ -1510,7 +1523,7 @@ bool LawnApp::IsFinalBossLevel() const {
     if (mBoard == nullptr)
         return false;
 
-    if (mGameMode == GameMode::GAMEMODE_CHALLENGE_FINAL_BOSS)
+    if (mGameMode == GameMode::GAMEMODE_CHALLENGE_FINAL_BOSS || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS)
         return true;
 
     return IsAdventureMode() && mPlayerInfo->mLevel == 50;
@@ -1624,6 +1637,11 @@ void LawnApp::LoadingCompleted() {
 }
 
 bool LawnApp::TryLoadGame() {
+    // TODO: 适配结盟无尽的读档
+    if (IsOnlineModeActive()) {
+        return false;
+    }
+
     int aId = mPlayerInfo->GetVTable()->GetId(mPlayerInfo);
     int aProfileId = mPlayerInfo->GetVTable()->GetProfileId(mPlayerInfo);
     pvzstl::string name;
@@ -1641,6 +1659,67 @@ bool LawnApp::TryLoadGame() {
     return false;
 }
 
+void LawnApp::RetryOnlineGame(GameMode theGameMode) {
+    PostLeaveLevel();
+    mMusic->StopAllMusic();
+    mSoundSystem->CancelPausedFoley();
+
+    const bool wasPauseSyncFromRemote = gPauseSyncFromRemote;
+    gPauseSyncFromRemote = true;
+    KillDialog(Dialogs::DIALOG_CONFIRM_IN_GAME_RESTART);
+    KillNewOptionsDialog();
+    KillDialog(Dialogs::DIALOG_GAME_OVER);
+    gPauseSyncFromRemote = wasPauseSyncFromRemote;
+    PreNewGame(theGameMode, false);
+}
+
+void LawnApp::RequestCoopRestart() {
+    if (!IsRemoteServer() || !IsCoopMode() || mBoard == nullptr || (mGameScene != GameScenes::SCENE_PLAYING && mGameScene != GameScenes::SCENE_LEVEL_INTRO)) {
+        return;
+    }
+    const GameMode aGameMode = mGameMode;
+    U16_Event event = {{EventType::EVENT_SERVER_BOARD_RETRY}, uint16_t(aGameMode)};
+    netplay::PutEvent(event);
+    RetryOnlineGame(aGameMode);
+}
+
+void LawnApp::RequestGameOverExit() {
+    if (!IsRemoteServer() || mBoard == nullptr || mGameScene != GameScenes::SCENE_ZOMBIES_WON) {
+        return;
+    }
+
+    BaseEvent event = {EventType::EVENT_SERVER_BOARD_GAMEOVER_EXIT};
+    netplay::PutEvent(event);
+    ExitGameOver();
+}
+
+void LawnApp::ExitGameOver() {
+    PostLeaveLevel();
+    KillDialog(Dialogs::DIALOG_GAME_OVER);
+    KillBoard();
+    if (IsSurvivalMode()) {
+        ShowChallengeScreen(ChallengePage::CHALLENGE_PAGE_SURVIVAL);
+    } else if (IsPuzzleMode()) {
+        ShowChallengeScreen(ChallengePage::CHALLENGE_PAGE_PUZZLE);
+    } else if (IsAdventureMode()) {
+        ShowGameSelector();
+    } else if (IsCoopMode()) {
+        ShowChallengeScreen(ChallengePage::CHALLENGE_PAGE_COOP);
+    } else {
+        ShowChallengeScreen(ChallengePage::CHALLENGE_PAGE_CHALLENGE);
+    }
+}
+
+void LawnApp::ReturnToModeSelect() {
+    const ChallengePage aPage = IsCoopMode() ? ChallengePage::CHALLENGE_PAGE_COOP : ChallengePage::CHALLENGE_PAGE_VS;
+    if (mVSSetupMenu != nullptr) {
+        mVSSetupMenu->CloseVSSetup(true);
+    }
+
+    KillBoard();
+    ShowChallengeScreen(aPage);
+}
+
 void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame) {
     // Best-effort flush queued outbound events before resetting recorder.
     if (gTcpClientSocket >= 0) {
@@ -1649,6 +1728,12 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame) {
         netplay::FlushSendBuffer(gTcpServerSocket);
     }
     replay::ResetRecorder();
+    if (IsOnlineModeActive()) {
+        PostEnterLevel();
+        mGameMode = theGameMode;
+        NewGame();
+        return;
+    }
     old_LawnApp_PreNewGame(this, theGameMode, theLookForSavedGame);
 }
 
@@ -1656,6 +1741,12 @@ void LawnApp::NewGame() {
     mFirstTimeGameSelector = false;
 
     MakeNewBoard();
+
+    if (IsCoopMode() && IsOnlineModeActive()) {
+        SetSecondPlayer(1);
+        mBoard->mGamepadControls[1]->mGamepadIndex = 1;
+    }
+
     mBoard->InitLevel();
     mBoardResult = BoardResult::BOARDRESULT_NONE;
     mGameScene = GameScenes::SCENE_LEVEL_INTRO;

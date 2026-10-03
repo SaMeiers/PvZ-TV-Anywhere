@@ -55,7 +55,35 @@ void NewOptionsDialog::ButtonDepress(int theId) {
         mApp->ShowChallengeScreen(ChallengePage::CHALLENGE_PAGE_VS);
         return;
     }
-    if (theId == 5 && (IsRemoteClient() || IsRemoteServer())) {
+    if (theId == NewOptionsDialog_Restart && mApp->IsCoopMode() && IsOnlineModeActive()) {
+        LawnApp *aApp = mApp;
+        if (gIsServerModeSpectator || gIsReplayMode) {
+            aApp->PlaySample(Sexy::SOUND_BUZZER);
+            return;
+        }
+        aApp->PlaySample(Sexy::SOUND_GRAVEBUTTON);
+        Sexy::Dialog::ButtonDepress(theId);
+        Board *aBoard = aApp->mBoard;
+        if (aBoard == nullptr) {
+            return;
+        }
+        Sexy::Dialog *restartDialog = aApp->DoConfirmRestartDialog();
+        const int result = restartDialog->WaitForResult(false);
+        if (aApp->GetDialog(DIALOG_CONFIRM_IN_GAME_RESTART) == restartDialog) {
+            aApp->KillDialog(DIALOG_CONFIRM_IN_GAME_RESTART);
+        }
+        if (result != 1000 || aApp->mBoard != aBoard || !aApp->IsCoopMode()) {
+            return;
+        }
+        if (IsRemoteClient()) {
+            BaseEvent event = {EventType::EVENT_CLIENT_BOARD_RETRY};
+            netplay::PutEvent(event);
+        } else if (IsRemoteServer()) {
+            aApp->RequestCoopRestart();
+        }
+        return;
+    }
+    if (theId == NewOptionsDialog_Restart && mApp->IsVSMode() && IsOnlineModeActive()) {
         if (gIsServerModeSpectator) {
             mApp->PlaySample(Sexy::SOUND_BUZZER);
             return;

@@ -98,4 +98,6 @@ inline NewLawnButton *MakeNewButton(int theId,
 }
 
 
+NewLawnButton *MakeModeSelectBackButton(int theId, Sexy::ButtonListener *theListener, Sexy::Widget *theWidget);
+
 #endif // PVZ_SEXYAPPFRAMEWORK_WIDGET_GAME_BUTTON_H

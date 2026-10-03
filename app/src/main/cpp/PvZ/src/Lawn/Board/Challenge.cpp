@@ -35,6 +35,7 @@
 #include "PvZ/Lawn/Widget/GameButton.h"
 #include "PvZ/Lawn/Widget/VSSetupMenu.h"
 #include "PvZ/Misc.h"
+#include "PvZ/NetPlay.h"
 #include "PvZ/SexyAppFramework/Graphics/Graphics.h"
 #include "PvZ/Symbols.h"
 #include "PvZ/TodLib/Common/TodStringFile.h"
@@ -941,6 +942,13 @@ void Challenge::ScaryPotterOpenPot(GridItem *theScaryPot) {
 }
 
 void Challenge::UpdateConveyorBelt(int thePlayerIndex) {
+    if (IsRemoteClientOrViewer()) {
+        SeedBank *aSeedBank = mBoard->mSeedBank[thePlayerIndex];
+        if (aSeedBank != nullptr && !mBoard->HasLevelAwardDropped()) {
+            aSeedBank->UpdateConveyorBelt();
+        }
+        return;
+    }
     old_Challenge_UpdateConveyorBelt(this, thePlayerIndex);
 }
 

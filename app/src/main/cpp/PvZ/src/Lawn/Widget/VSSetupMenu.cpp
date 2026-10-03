@@ -26,7 +26,6 @@
 #include "PvZ/Lawn/Board/SeedBank.h"
 #include "PvZ/Lawn/LawnApp.h"
 #include "PvZ/Lawn/Widget/SeedChooserScreen.h"
-#include "PvZ/Lawn/Widget/WaitForSecondPlayerDialog.h"
 #include "PvZ/SexyAppFramework/Widget/Checkbox.h"
 #include "PvZ/TodLib/Common/TodStringFile.h"
 
@@ -1190,29 +1189,10 @@ void VSSetupMenu::OnStateEnter(VSSetupState theState) {
             netplay::PutEvent(event);
         }
 
-        // 跳过 VSSetupState 的 WaitForSecondPlayerDialog
         mApp->SetSecondPlayer(1);
         SetSecondPlayerIndex(mApp->mSecondPlayerGamepadIndex);
         GoToState(VSSetupState::VS_SETUP_STATE_SIDES);
-
-
         return;
-
-        //        mControllerIndex[1] = -1;
-        //        auto *aWaitDialog = new WaitForSecondPlayerDialog(mApp);
-        //        mApp->AddDialog(aWaitDialog);
-        //
-        //        int aButtonId = aWaitDialog->WaitForResult(true);
-        //        if (aButtonId == VSSetupMenu::VSSetupMenu_Enter) {
-        //            SetSecondPlayerIndex(mApp->mSecondPlayerGamepadIndex);
-        //            GoToState(VSSetupState::VS_SETUP_STATE_SIDES);
-        //        } else if (aButtonId == VSSetupMenu::VSSetupMenu_Back) {
-        //            CloseVSSetup(true);
-        //            mApp->KillBoard();
-        //            //            mApp->ShowGameSelector();
-        //            mApp->ShowChallengeScreen(ChallengePage::CHALLENGE_PAGE_VS); // 返回主菜单改为返回战场选择
-        //        }
-        //        return;
     } else if (theState == VSSetupState::VS_SETUP_STATE_SELECT_BATTLE) {
         // 选边完成，启用按钮
         for (int i = QUICK_BUTTON; i <= RANDOM_BUTTON; ++i) {

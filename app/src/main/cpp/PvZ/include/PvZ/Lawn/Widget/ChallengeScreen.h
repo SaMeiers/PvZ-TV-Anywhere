@@ -28,7 +28,7 @@
 #include "PvZ/Symbols.h"
 
 #include "HelpBarWidget.h"
-#include "WaitForSecondPlayerDialog.h"
+#include "NetplayLobbyWidget.h"
 
 inline constexpr int NUM_CHALLENGE_MODES(int(GameMode::NUM_GAME_MODES - 1));
 inline constexpr int GAMEMODE_MP_VS_DAY = 70;
@@ -72,7 +72,7 @@ public:
     int mSurvivalCount;                                         // 379
     // 大小380个整数, 以下是新增成员!
     NewLawnButton *mBackButton = nullptr;
-    WaitForSecondPlayerDialog *mConnectDialog = nullptr;
+    NetplayLobbyWidget *mNetplayLobbyWidget = nullptr;
 
     ChallengeScreen(LawnApp *theApp, ChallengePage thePage) {
         _constructor(theApp, thePage);

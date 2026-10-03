@@ -18,14 +18,14 @@
  */
 
 #include "PvZ/Lawn/Board/VSActionAI/VSActionAIPlant/PlantAI.h"
-
 #include "PvZ/Lawn/Board/VSActionAI/VSActionAITacticalRules.h"
-
 #include "PvZ/Lawn/Common/GameConstants.h"
-#include <cmath>
+
 #include <algorithm>
 #include <limits>
 #include <optional>
+
+#include <cmath>
 
 namespace vsai::detail {
 

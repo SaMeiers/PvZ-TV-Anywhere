@@ -17,11 +17,12 @@
 #include "PvZ/SexyAppFramework/Buffer.h"
 #include "PvZ/SexyAppFramework/SexyAppBase.h"
 
-#include <cstddef>
-#include <cstdint>
 #include <algorithm>
 #include <array>
 #include <vector>
+
+#include <cstddef>
+#include <cstdint>
 
 namespace vsai::detail {
 

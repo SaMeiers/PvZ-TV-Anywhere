@@ -140,25 +140,17 @@ ForEachMacros: [ foreach, Q_FOREACH, BOOST_FOREACH ]
 # 对 #include 进行排序, 匹配了某正则表达式的 #include 拥有对应的优先级, 匹配不到的则默认优先级为 INT_MAX (优先级越小排序越靠前), 
 # 可以定义负数优先级从而保证某些 #include 永远在最前面
 IncludeCategories:
-  # Project absolute paths.
-  - Regex: '^"(Homura|PvZ)/'
+  - Regex: '^((<|")(Homura|PvZ))/'
     Priority: 1
-  # Project relative paths.  Prefer absolute project paths for new includes.
   - Regex: '^"'
     Priority: 2
-  # Third-party libraries.
-  - Regex: '^<(boost|gtest|isl|json)/'
-    Priority: 3
-  # Platform/system libraries.
-  - Regex: '^<(SLES|android|arpa|asm|dlfcn|elf|fcntl|jni|linux|pthread|signal|sys|unistd)\.?.*'
+  - Regex: '<(assert|complex|ctype|errno|fenv|float|inttypes|iso646|limits|locale|math|setjmp|signal|stdalign|stdarg|stdatomic|stdbool|stddef|stdint|stdio|stdlib|string|tgmath|time|uchar|wchar|wctype)\.h>'
     Priority: 4
-  # C standard library headers used through C++ wrapper names.
-  - Regex: '^<c(assert|complex|ctype|errno|fenv|float|inttypes|iso646|limits|locale|math|setjmp|signal|stdalign|stdarg|stdbool|stddef|stdint|stdio|stdlib|string|tgmath|time|uchar|wchar|wctype)>'
+  - Regex: '<c(assert|complex|ctype|errno|fenv|float|inttypes|iso646|limits|locale|math|setjmp|signal|stdalign|stdarg|stdbool|stddef|stdint|stdio|stdlib|string|tgmath|time|uchar|wchar|wctype)>'
     Priority: 5
-  # C standard library headers used through .h names.
-  - Regex: '^<(assert|complex|ctype|errno|fenv|float|inttypes|iso646|limits|locale|math|setjmp|signal|stdalign|stdarg|stdbool|stddef|stdint|stdio|stdlib|string|tgmath|time|uchar|wchar|wctype)\.h>'
-    Priority: 5
-  # C++ standard library and any remaining angle includes.
+  - Regex: '<.*\.(h|H|hpp|hh|h\+\+|hxx)>'
+    Priority: 3
+  # C++ standard library
   - Regex: '^<'
     Priority: 6
 

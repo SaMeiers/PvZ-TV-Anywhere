@@ -21,10 +21,11 @@
 
 #include "PvZ/Lawn/Board/VSActionAI/VSActionAILanePolicy.h"
 
-#include <cmath>
 #include <algorithm>
 #include <limits>
 #include <optional>
+
+#include <cmath>
 
 namespace vsai::detail {
 

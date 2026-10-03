@@ -612,9 +612,6 @@ public:
     void UpdateCoverLayer() {
         reinterpret_cast<void (*)(Board *)>(Board_UpdateCoverLayerAddr)(this);
     }
-    void PlaceRake() {
-        reinterpret_cast<void (*)(Board *)>(Board_PlaceRakeAddr)(this);
-    }
     void SpawnZombiesFromSky() {
         reinterpret_cast<void (*)(Board *)>(Board_SpawnZombiesFromSkyAddr)(this);
     }
@@ -715,6 +712,9 @@ public:
     void DrawShovel(Sexy::Graphics *g);
     bool StageIsNight() const;
     bool StageHasPool() const;
+    bool StageHasZombieWalkInFromRight() {
+        return reinterpret_cast<bool (*)(Board *)>(Board_StageHasZombieWalkInFromRightAddr)(this);
+    }
     bool StageHasRoof() const;
     bool StageHas6Rows() const;
     Zombie *AddZombieInRow(ZombieType theZombieType, int theRow, int theFromWave, bool theIsRustle);
@@ -734,6 +734,14 @@ public:
     void SpeedUpUpdate();
     void DrawShovelButton(Sexy::Graphics *g, LawnApp *theApp);
     void ShovelDown();
+    void ShovelDownForPlayer(int thePlayerIndex);
+    bool UsesOnlineCoopTools() const;
+    bool IsShovelInCursor(int thePlayerIndex) const;
+    bool IsButterInCursor(int thePlayerIndex) const;
+    void SetCoopTool(int thePlayerIndex, GameObjectType theTool);
+    void ApplyCoopButter(int thePlayerIndex);
+    enum class CoopToolTouch { Down, Drag, Up };
+    bool HandleCoopToolTouch(int thePlayerIndex, int x, int y, CoopToolTouch thePhase);
     int PixelToGridXKeepOnBoard(int theX, int theY);
     int PixelToGridYKeepOnBoard(int theX, int theY);
     int GridToPixelX(int theGridX, int theGridY) const;
@@ -786,9 +794,12 @@ public:
     void PlantsWon_Origin(GridItem *theGridItem);
     GridItem *AddALadder(int theGridX, int theGridY);
     GridItem *AddALadder_Origin(int theGridX, int theGridY);
+    void PlaceRake();
+    GridItem *PlaceRake_Origin(int theGridX = -1, int theGridY = -1);
     GridItem *AddACrater(int theGridX, int theGridY);
     GridItem *AddACrater_Origin(int theGridX, int theGridY);
     GridItem *AddAGraveStone(int theGridX, int theGridY);
+    GridItem *AddAGraveStone_Origin(int theGridX, int theGridY);
     GridItem *AddAMound(int theGridX, int theGridY, int theMoundLevel);
     GridItem *AddAPole(int theX, int theY, int theGridY);
     GridItem *AddAPole_Origin(int theX, int theY, int theGridY);

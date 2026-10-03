@@ -46,6 +46,7 @@
 #include "PvZ/Lawn/Widget/ChallengeScreen.h"
 #include "PvZ/Lawn/Widget/ConfirmBackToMainDialog.h"
 #include "PvZ/Lawn/Widget/CreditScreen.h"
+#include "PvZ/Lawn/Widget/GameOverDialog.h"
 #include "PvZ/Lawn/Widget/HelpBarWidget.h"
 #include "PvZ/Lawn/Widget/HelpOptionsDialog.h"
 #include "PvZ/Lawn/Widget/HelpTextScreen.h"
@@ -61,7 +62,6 @@
 #include "PvZ/Lawn/Widget/TrashBin.h"
 #include "PvZ/Lawn/Widget/VSResultsMenu.h"
 #include "PvZ/Lawn/Widget/VSSetupMenu.h"
-#include "PvZ/Lawn/Widget/WaitForSecondPlayerDialog.h"
 #include "PvZ/SexyAppFramework/Graphics/DeviceImage.h"
 #include "PvZ/SexyAppFramework/Graphics/Graphics.h"
 #include "PvZ/SexyAppFramework/Widget/ButtonWidget.h"
@@ -185,6 +185,7 @@ void InitHookFunction() {
     homura::HookFunc(Board_GetSeedPacketPositionXAddr, &Board::GetSeedPacketPositionX, nullptr);
     homura::HookFunc(Board_AddCoinAddr, &Board::AddCoin, &old_Board_AddCoin);
     homura::HookFunc(Board_AddAGraveStoneAddr, &Board::AddAGraveStone, &old_Board_AddAGraveStone);
+    homura::HookFunc(Board_PlaceRakeAddr, &Board::PlaceRake, nullptr);
     homura::HookFunc(Board_TakeSunMoneyAddr, &Board::TakeSunMoney, &old_Board_TakeSunMoney);
     homura::HookFunc(Board_TakeDeathMoneyAddr, &Board::TakeDeathMoney, &old_Board_TakeDeathMoney);
     homura::HookFunc(Board_SpawnZombiesFromGravesAddr, &Board::SpawnZombiesFromGraves, nullptr);
@@ -256,6 +257,7 @@ void InitHookFunction() {
     homura::HookFunc(Coin_UpdateFallAddr, &Coin::UpdateFall, &old_Coin_UpdateFall);
     homura::HookFunc(Coin_DrawAddr, &Coin::Draw, nullptr);
     homura::HookFunc(Coin_PlayCollectSoundAddr, &Coin::PlayCollectSound, nullptr);
+    homura::HookFunc(Coin_FanOutCoinsAddr, &Coin::FanOutCoins, &old_Coin_FanOutCoins);
     homura::HookFunc(Coin_ScoreCoinAddr, &Coin::ScoreCoin, nullptr);
     homura::HookFunc(Coin_UpdateCollectedAddr, &Coin::UpdateCollected, nullptr);
     homura::HookFunc(Coin_IsSunAddr, &Coin::IsSun, nullptr);
@@ -375,6 +377,7 @@ void InitHookFunction() {
 
     homura::HookFunc(Plant_UpdateAddr, &Plant::Update, &old_Plant_Update);
     homura::HookFunc(Plant_UpdateAbilitiesAddr, &Plant::UpdateAbilities, &old_Plant_UpdateAbilities);
+    homura::HookFunc(Plant_UpdateBowlingAddr, &Plant::UpdateBowling, nullptr);
     homura::HookFunc(Plant_SquishAddr, &Plant::Squish, nullptr);
     homura::HookFunc(Plant_AnimateAddr, &Plant::Animate, nullptr);
     homura::HookFunc(Plant_GetPlantRectAddr, &Plant::GetPlantRect, nullptr);
@@ -394,6 +397,7 @@ void InitHookFunction() {
     homura::HookFunc(Plant_FindTargetGridItemAddr, &Plant::FindTargetGridItem, nullptr);
     homura::HookFunc(Plant_GetCostAddr, &Plant::GetCost, &old_Plant_GetCost);
     homura::HookFunc(Plant_DieAddr, &Plant::Die, nullptr);
+    homura::HookFunc(Plant_ImitaterMorphAddr, &Plant::ImitaterMorph, nullptr);
     homura::HookFunc(GetPlantDefinitionAddr, &GetPlantDefinition, nullptr);
     homura::HookFunc(Plant_PlayBodyReanimAddr, &Plant::PlayBodyReanim, &old_Plant_PlayBodyReanim);
     homura::HookFunc(Plant_UpdateProductionPlantAddr, &Plant::UpdateProductionPlant, &old_Plant_UpdateProductionPlant);
@@ -448,6 +452,25 @@ void InitHookFunction() {
     homura::HookFunc(Zombie_UpdateAddr, &Zombie::Update, nullptr);
     homura::HookFunc(Zombie_UpdateActionsAddr, &Zombie::UpdateActions, &old_Zombie_UpdateActions);
     homura::HookFunc(Zombie_UpdatePlayingAddr, &Zombie::UpdatePlaying, nullptr);
+    homura::HookFunc(Zombie_UpdateBossAddr, &Zombie::UpdateBoss, nullptr);
+    homura::HookFunc(Zombie_UpdateBossFireballAddr, &Zombie::UpdateBossFireball, nullptr);
+    homura::HookFunc(Zombie_BossPlayIdleAddr, &Zombie::BossPlayIdle, nullptr);
+    homura::HookFunc(Zombie_BossBungeeAttackAddr, &Zombie::BossBungeeAttack, nullptr);
+    homura::HookFunc(Zombie_BossRVAttackAddr, &Zombie::BossRVAttack, nullptr);
+    homura::HookFunc(Zombie_BossStompAttackAddr, &Zombie::BossStompAttack, nullptr);
+    homura::HookFunc(Zombie_BossHeadAttackAddr, &Zombie::BossHeadAttack, nullptr);
+    homura::HookFunc(Zombie_BossSpawnContactAddr, &Zombie::BossSpawnContact, nullptr);
+    homura::HookFunc(Zombie_BossStompContactAddr, &Zombie::BossStompContact, nullptr);
+    homura::HookFunc(Zombie_BossBungeeSpawnAddr, &Zombie::BossBungeeSpawn, nullptr);
+    homura::HookFunc(Zombie_BossAreBungeesDoneAddr, &Zombie::BossAreBungeesDone, nullptr);
+    homura::HookFunc(Zombie_BossBungeeLeaveAddr, &Zombie::BossBungeeLeave, nullptr);
+    homura::HookFunc(Zombie_BossRVLandingAddr, &Zombie::BossRVLanding, nullptr);
+    homura::HookFunc(Zombie_BossHeadSpitAddr, &Zombie::BossHeadSpit, nullptr);
+    homura::HookFunc(Zombie_BossHeadSpitEffectAddr, &Zombie::BossHeadSpitEffect, nullptr);
+    homura::HookFunc(Zombie_BossHeadSpitContactAddr, &Zombie::BossHeadSpitContact, nullptr);
+    homura::HookFunc(Zombie_BossStartDeathAddr, &Zombie::BossStartDeath, nullptr);
+    homura::HookFunc(Zombie_BossDieAddr, &Zombie::BossDie, nullptr);
+    homura::HookFunc(Zombie_BossCanStompRowAddr, &Zombie::BossCanStompRow, nullptr);
     homura::HookFunc(Zombie_UpdateYetiAddr, &Zombie::UpdateYeti, nullptr);
     homura::HookFunc(Zombie_UpdateZombieFlyerAddr, &Zombie::UpdateZombieFlyer, nullptr);
     homura::HookFunc(Zombie_UpdateZombieImpAddr, &Zombie::UpdateZombieImp, nullptr);
@@ -546,7 +569,7 @@ void InitHookFunction() {
     // homura::HookFunc(SeedBank_SeedBankAddr, &SeedBank::Create, &old_SeedBank_SeedBank);
     // homura::HookFunc(SeedBank_UpdateWidthAddr, &SeedBank::UpdateWidth, &old_SeedBank_UpdateWidth);
     homura::HookFunc(SeedBank_MoveAddr, &SeedBank::Move, nullptr);
-    homura::HookFunc(SeedBank_AddSeedAddr, &SeedBank::AddSeed, &old_SeedBank_AddSeed);
+    homura::HookFunc(SeedBank_AddSeedAddr, &SeedBank::AddSeed, nullptr);
 
 
     homura::HookFunc(AwardScreen_MouseDownAddr, &AwardScreen::MouseDown, &old_AwardScreen_MouseDown);
@@ -652,10 +675,6 @@ void InitHookFunction() {
     homura::HookFunc(HelpTextScreen__destructorAddr, &HelpTextScreen::_destructor, &old_HelpTextScreen__destructor);
     homura::HookFunc(HelpTextScreen_UpdateAddr, &HelpTextScreen::Update, &old_HelpTextScreen_Update);
 
-    homura::HookFunc(WaitForSecondPlayerDialog_WaitForSecondPlayerDialogAddr, &WaitForSecondPlayerDialog::_constructor, &old_WaitForSecondPlayerDialog_WaitForSecondPlayerDialog);
-    homura::HookFunc(WaitForSecondPlayerDialog__destructorAddr, &WaitForSecondPlayerDialog::_destructor, &old_WaitForSecondPlayerDialog__destructorAddr);
-    homura::HookFunc(WaitForSecondPlayerDialog__destructor2Addr, &WaitForSecondPlayerDialog::_destructor2, &old_WaitForSecondPlayerDialog__destructor2Addr);
-
 
     homura::HookFunc(Sexy_WidgetManager_MouseDownAddr, &Sexy::WidgetManager::MouseDown, &old_Sexy_WidgetManager_MouseDown);
     homura::HookFunc(Sexy_WidgetManager_MouseDragAddr, &Sexy::WidgetManager::MouseDrag, &old_Sexy_WidgetManager_MouseDrag);
@@ -665,7 +684,9 @@ void InitHookFunction() {
 
     homura::HookFunc(LawnMower_UpdateAddr, &LawnMower::Update, &old_LawnMower_Update);
     homura::HookFunc(LawnMower_StartMowerAddr, &LawnMower::StartMower, &old_LawnMower_StartMower);
+    homura::HookFunc(LawnMower_SquishMowerAddr, &LawnMower::SquishMower, nullptr);
     homura::HookFunc(ConfirmBackToMainDialog_ButtonDepressAddr, &ConfirmBackToMainDialog_ButtonDepress, &old_ConfirmBackToMainDialog_ButtonDepress);
+    homura::HookFunc(GameOverDialog_ButtonDepressAddr, &GameOverDialog::ButtonDepress, nullptr);
     homura::HookFunc(ConfirmBackToMainDialog_AddedToManagerAddr, &ConfirmBackToMainDialog_AddedToManager, &old_ConfirmBackToMainDialog_AddedToManager);
     homura::HookFunc(ConfirmBackToMainDialog_RemovedFromManagerAddr, &ConfirmBackToMainDialog_RemovedFromManager, &old_ConfirmBackToMainDialog_RemovedFromManager);
     // homura::HookFunc(FilterEffectDisposeForAppAddr, FilterEffectDisposeForApp, nullptr);
@@ -850,13 +871,6 @@ void InitVTableHookFunction() {
     homura::HookVirtualFunc(vTableForCreditScreenAddr, 133, &CreditScreen::ButtonDepress, nullptr);
 
     homura::HookVirtualFunc(vTableForMainMenuAddr, 139, &MainMenu::ButtonPress, nullptr);
-
-
-    homura::HookVirtualFunc(vTableForWaitForSecondPlayerDialogAddr, 142, &WaitForSecondPlayerDialog::ButtonDepress_Thunk, &old_WaitForSecondPlayerDialog_ButtonDepress);
-    homura::HookVirtualFunc(vTableForWaitForSecondPlayerDialogAddr, 33, &WaitForSecondPlayerDialog::Update, nullptr);
-    homura::HookVirtualFunc(vTableForWaitForSecondPlayerDialogAddr, 38, &WaitForSecondPlayerDialog::Draw, &old_WaitForSecondPlayerDialog_Draw);
-    homura::HookVirtualFunc(vTableForWaitForSecondPlayerDialogAddr, 52, &WaitForSecondPlayerDialog::Resize, nullptr);
-    homura::HookVirtualFunc(vTableForWaitForSecondPlayerDialogAddr, 78, &WaitForSecondPlayerDialog::MouseDown, nullptr);
 }
 
 void InitOpenSL() {
