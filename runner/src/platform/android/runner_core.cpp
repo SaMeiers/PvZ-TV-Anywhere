@@ -22,6 +22,7 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <unordered_map>
 #include <vector>
@@ -65,11 +66,28 @@ static std::vector<ActiveJitInfo> g_active_jits;
 // The PC a JIT keeps in memory is where its last block ended, which lands in
 // the function that block belongs to -- plenty to tell where time goes.
 // Resolve the addresses against the module bases logged at load.
+static bool sampler_return_address(PvzTvGuestEnv *env, uint32_t v);
+static uint32_t sampler_read32(PvzTvGuestEnv *env, uint32_t addr, bool &ok);
+
 static void start_guest_sampler() {
     char prop[PROP_VALUE_MAX] = {0};
     if (__system_property_get("debug.pvztv.sample", prop) <= 0 || prop[0] == '0') return;
-    std::thread([] {
+    // `setprop debug.pvztv.sample.range 0xLO-0xHI` adds who-called-it: for
+    // samples whose PC is in that range, the first return addresses found on
+    // the guest stack are counted as a call chain.
+    uint32_t range_lo = 0, range_hi = 0;
+    char range[PROP_VALUE_MAX] = {0};
+    if (__system_property_get("debug.pvztv.sample.range", range) > 0) {
+        char *dash = std::strchr(range, '-');
+        if (dash) {
+            *dash = 0;
+            range_lo = (uint32_t)std::strtoul(range, nullptr, 0);
+            range_hi = (uint32_t)std::strtoul(dash + 1, nullptr, 0);
+        }
+    }
+    std::thread([range_lo, range_hi] {
         std::unordered_map<uint64_t, uint32_t> hist;
+        std::unordered_map<std::string, uint32_t> chains;
         uint32_t samples = 0;
         auto last = std::chrono::steady_clock::now();
         for (;;) {
@@ -80,6 +98,21 @@ static void start_guest_sampler() {
                     const uint32_t pc = e.jit->Regs()[15];
                     if (pc < PVZ2_SO_BASE) continue; // parked in a host call
                     ++hist[(uint64_t{e.tid} << 32) | pc];
+                    if (pc >= range_lo && pc < range_hi) {
+                        char chain[160];
+                        int len = snprintf(chain, sizeof(chain), "tid=%u", e.tid);
+                        int frames = 0;
+                        const uint32_t sp = e.jit->Regs()[13];
+                        for (uint32_t off = 0; off < 0x1000 && frames < 6; off += 4) {
+                            bool ok = false;
+                            const uint32_t v = sampler_read32(e.env, sp + off, ok);
+                            if (!ok) break;
+                            if (!sampler_return_address(e.env, v)) continue;
+                            len += snprintf(chain + len, sizeof(chain) - len, " %08X", v);
+                            ++frames;
+                        }
+                        ++chains[chain];
+                    }
                 }
                 ++samples;
             }
@@ -91,6 +124,11 @@ static void start_guest_sampler() {
             LOGI("[sample] %u ticks, %zu distinct PCs; top:", samples, top.size());
             for (size_t i = 0; i < top.size() && i < 80; ++i) {
                 LOGI("[sample] tid=%u pc=0x%08X n=%u", (uint32_t)(top[i].first >> 32), (uint32_t)top[i].first, top[i].second);
+            }
+            std::vector<std::pair<std::string, uint32_t>> ctop(chains.begin(), chains.end());
+            std::sort(ctop.begin(), ctop.end(), [](const auto &a, const auto &b) { return a.second > b.second; });
+            for (size_t i = 0; i < ctop.size() && i < 12; ++i) {
+                LOGI("[sample] chain n=%u %s", ctop[i].second, ctop[i].first.c_str());
             }
         }
     }).detach();
@@ -489,6 +527,14 @@ public:
     }
 };
 
+static bool sampler_return_address(PvzTvGuestEnv *env, uint32_t v) { return env->is_return_address(v); }
+static uint32_t sampler_read32(PvzTvGuestEnv *env, uint32_t addr, bool &ok) {
+    ok = env->in_bounds(addr, 4);
+    uint32_t v = 0;
+    if (ok) memcpy(&v, &env->img->mem[addr], 4);
+    return v;
+}
+
 struct CallbackJitSlot {
     std::unique_ptr<PvzTvGuestEnv> env;
     std::unique_ptr<Dynarmic::A32::Jit> jit;
@@ -875,6 +921,7 @@ bool RunnerCore::init(const char *game_so_path, const char *data_dir) {
     initialize_data_imports(&image_, &runtime_);
     setup_transmension_bridge(&image_, &runtime_);
     LOGI("Host overrides installed: %u", install_guest_overrides(&image_));
+    prepare_proc_addresses(&image_);
 
     const auto &table = import_table();
     s_handlers.assign(image_.trampoline_count, nullptr);
