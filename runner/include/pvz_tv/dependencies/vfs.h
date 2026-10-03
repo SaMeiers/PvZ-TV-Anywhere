@@ -51,6 +51,13 @@ int translate_open_flags(std::uint32_t guest_flags);
  * black screen until it was launched a second time. */
 void ensure_writable_dirs();
 
+/* Writes pseudo_fs/proc/cpuinfo as a 32-bit process on an ARMv8 kernel sees
+ * it. The game's libpng only installs its NEON row filters when /proc/cpuinfo
+ * lists " neon "; with no such file -- or with the host's own, which says
+ * "asimd" -- it decodes every PNG through the byte-at-a-time C filters, the
+ * single largest cost of loading. */
+void write_pseudo_cpuinfo();
+
 }  // namespace vfs
 }  // namespace pvz_tv
 

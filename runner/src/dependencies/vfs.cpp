@@ -8,7 +8,9 @@
 #include <cstring>
 #include <fcntl.h>
 #include <string>
+#include <cstdio>
 #include <filesystem>
+#include <thread>
 
 #if defined(_WIN32)
 #include <io.h>
@@ -64,19 +66,38 @@ static std::string to_lower_str(const std::string &s) {
 /* The walk runs from inside a guest file call, so nothing here may throw: an
  * entry that cannot be read -- or, on Windows, whose name the narrow encoding
  * cannot represent -- is skipped and the rest of the tree is still indexed. */
-static void index_dir(const std::string &dir_path, const std::string &prefix) {
+static void index_dir(const std::string &dir_path, const std::string &prefix,
+                      std::initializer_list<const char *> skip_top = {}) {
     std::error_code ec;
     if (!std::filesystem::exists(dir_path, ec)) return;
+    std::string root = std::filesystem::path(dir_path).generic_string();
+    collapse_slashes(root);
     try {
-        for (auto &it : std::filesystem::recursive_directory_iterator(
-                 dir_path, std::filesystem::directory_options::skip_permission_denied, ec)) {
+        std::filesystem::recursive_directory_iterator walk(
+            dir_path, std::filesystem::directory_options::skip_permission_denied, ec);
+        for (auto it = std::filesystem::begin(walk); it != std::filesystem::end(walk); it.increment(ec)) {
+            if (ec) break;
             try {
-                if (!it.is_regular_file(ec)) continue;
+                if (it.depth() == 0 && it->is_directory(ec)) {
+                    const std::string name = it->path().filename().generic_string();
+                    for (const char *skip : skip_top) {
+                        if (name == skip) {
+                            it.disable_recursion_pending();
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                if (!it->is_regular_file(ec)) continue;
 
-                std::string full = it.path().generic_string();
-                std::string rel = std::filesystem::relative(it.path(), dir_path, ec).generic_string();
+                std::string full = it->path().generic_string();
                 collapse_slashes(full);
-                collapse_slashes(rel);
+                /* Every path the walk yields starts with dir_path, so the
+                 * relative part is a substring. std::filesystem::relative()
+                 * canonicalises both sides with a stat per path component --
+                 * for every one of ~20000 files. */
+                std::string rel = full.size() > root.size() ? full.substr(root.size()) : std::string();
+                if (!rel.empty() && rel[0] == '/') rel.erase(0, 1);
 
                 std::string rel_lower = to_lower_str(rel);
                 s_vfs_index[rel_lower] = full;
@@ -113,13 +134,15 @@ static void ensure_vfs_indexed() {
          * hold the asset directory exactly as it is packed. Indexing it as a
          * root as well makes both layouts resolve the same guest paths. */
         index_dir("assets/files", "assets");
-        index_dir("/data/user/0/com.trans.pvztv/files/assets", "assets");
-        index_dir("/storage/emulated/0/Android/data/com.trans.pvztv/files/assets", "assets");
         index_dir("userdata", "userdata");
-        index_dir("/data/user/0/com.trans.pvztv/files/userdata", "userdata");
-        index_dir("/storage/emulated/0/Android/data/com.trans.pvztv/files/userdata", "userdata");
         index_dir("pseudo_fs", "");
-        index_dir(".", "");
+        /* What a pak or an imported config drops next to the assets, which
+         * wins over them because it is indexed last. The cwd is the data
+         * directory, so the asset tree is under it too: walking it again here
+         * (and once more through absolute paths that named the very same
+         * directory) was most of the time this took. data/ and pseudo_fs/
+         * are answered from the filesystem anyway. */
+        index_dir(".", "", {"assets", "userdata", "data", "pseudo_fs"});
         LOGI("VFS indexed %zu entries across asset directories", s_vfs_index.size());
     });
 }
@@ -219,6 +242,30 @@ bool exists(GuestRuntime *rt, const std::string &guest_path, std::string &out_ho
         return std::filesystem::exists(out_host, ec);
     }
     return false;
+}
+
+void write_pseudo_cpuinfo() {
+    std::error_code ec;
+    std::filesystem::create_directories("pseudo_fs/proc", ec);
+    std::FILE *f = std::fopen("pseudo_fs/proc/cpuinfo", "w");
+    if (!f) return;
+    unsigned cpus = std::thread::hardware_concurrency();
+    if (cpus == 0) cpus = 4;
+    for (unsigned i = 0; i < cpus; ++i) {
+        std::fprintf(f,
+                     "processor\t: %u\n"
+                     "model name\t: ARMv7 Processor rev 4 (v7l)\n"
+                     "BogoMIPS\t: 26.00\n"
+                     "Features\t: half thumb fastmult vfp edsp neon vfpv3 tls vfpv4 idiva idivt lpae evtstrm\n"
+                     "CPU implementer\t: 0x41\n"
+                     "CPU architecture: 7\n"
+                     "CPU variant\t: 0x0\n"
+                     "CPU part\t: 0xd03\n"
+                     "CPU revision\t: 4\n\n",
+                     i);
+    }
+    std::fprintf(f, "Hardware\t: pvztv-runner\n");
+    std::fclose(f);
 }
 
 void ensure_writable_dirs() {
