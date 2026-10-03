@@ -40,6 +40,19 @@ std::string translate(GuestRuntime *rt, std::string guest_path);
 /* Check if guest path exists in pre-indexed VFS or on disk, returning translated host path */
 bool exists(GuestRuntime *rt, const std::string &guest_path, std::string &out_host);
 
+/* Whether the directory that would hold host_path exists. Cached, because the
+ * engine probes every resource under data/ first and nearly all of those
+ * directories do not exist: answering from the disk cost a stat each, on an
+ * encrypted filesystem, thousands of times -- 44% of the kernel time spent
+ * loading on a Galaxy A04e. A missing directory means a missing file, with no
+ * system call. */
+bool parent_dir_exists(const std::string &host_path);
+
+/* Forgets the cached directories; called by every handler that creates,
+ * removes or renames something, so the cache can never hide what the game
+ * itself just made. */
+void invalidate_dir_cache();
+
 /* bionic/ARM open(2) flag bits -> host _O_* values. They differ for
  * O_CREAT/O_EXCL/O_TRUNC/O_APPEND; binary mode is always forced. */
 int translate_open_flags(std::uint32_t guest_flags);

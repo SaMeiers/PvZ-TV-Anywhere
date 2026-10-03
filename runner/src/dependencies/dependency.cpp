@@ -9,6 +9,7 @@
 #include <android/log.h>
 #endif
 
+#include <algorithm>
 #include <atomic>
 #include <cstdarg>
 #include <cstdlib>
@@ -90,14 +91,13 @@ void GuestCall::write32(std::uint32_t addr, std::uint32_t v) {
 }
 
 std::string GuestCall::cstr(std::uint32_t addr, std::size_t max) const {
-    std::string s;
-    for (std::size_t i = 0; i < max; ++i) {
-        if (!in_bounds(addr + (std::uint32_t)i, 1)) break;
-        char c = (char)img->mem[addr + i];
-        if (c == '\0') break;
-        s.push_back(c);
-    }
-    return s;
+    /* One memchr and one copy: every path the game opens comes through here,
+     * and appending a character at a time showed up in the loading profile. */
+    if (addr >= img->mem_size) return {};
+    const std::size_t avail = std::min<std::size_t>(max, img->mem_size - addr);
+    const char *p = reinterpret_cast<const char *>(img->mem + addr);
+    const void *nul = std::memchr(p, 0, avail);
+    return std::string(p, nul ? static_cast<const char *>(nul) - p : avail);
 }
 
 void GuestCall::put_cstr(std::uint32_t addr, const std::string &s) {

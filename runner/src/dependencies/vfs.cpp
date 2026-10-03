@@ -11,6 +11,8 @@
 #include <string>
 #include <cstdio>
 #include <filesystem>
+#include <unordered_map>
+#include <mutex>
 #include <thread>
 
 #if defined(_WIN32)
@@ -239,10 +241,36 @@ bool exists(GuestRuntime *rt, const std::string &guest_path, std::string &out_ho
      * are not there (one per extension it is willing to accept); turning each
      * of those misses into a stat() is enough to make loading crawl. */
     if (is_writable_area(key) || is_writable_area(g_key)) {
+        if (!parent_dir_exists(out_host)) return false;
         std::error_code ec;
         return std::filesystem::exists(out_host, ec);
     }
     return false;
+}
+
+static std::mutex s_dir_lock;
+static std::unordered_map<std::string, bool> s_dir_exists;
+
+bool parent_dir_exists(const std::string &host_path) {
+    const std::size_t slash = host_path.find_last_of("/\\");
+    if (slash == std::string::npos) return true; /* the cwd itself */
+    const std::string dir = host_path.substr(0, slash);
+    if (dir.empty()) return true;               /* the root */
+    {
+        std::lock_guard<std::mutex> lk(s_dir_lock);
+        auto it = s_dir_exists.find(dir);
+        if (it != s_dir_exists.end()) return it->second;
+    }
+    std::error_code ec;
+    const bool present = std::filesystem::is_directory(dir, ec);
+    std::lock_guard<std::mutex> lk(s_dir_lock);
+    s_dir_exists[dir] = present;
+    return present;
+}
+
+void invalidate_dir_cache() {
+    std::lock_guard<std::mutex> lk(s_dir_lock);
+    s_dir_exists.clear();
 }
 
 void write_pseudo_cpuinfo() {

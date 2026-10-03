@@ -488,7 +488,12 @@ void c_fsync(GuestCall &c) {
 void stat_path(GuestCall &c) {
     std::string hpath = vfs::translate(c.rt, c.cstr(c.arg(0), 1024));
     std::error_code ec;
-    auto status = std::filesystem::status(hpath, ec);
+    std::filesystem::file_status status;
+    if (vfs::parent_dir_exists(hpath)) {
+        status = std::filesystem::status(hpath, ec);
+    } else {
+        ec = std::make_error_code(std::errc::no_such_file_or_directory);
+    }
     if (ec) {
         for (std::uint32_t i = 0; i < kStatSize; i += 4) c.write32(c.arg(1) + i, 0);
         c.set_errno(2 /* ENOENT */);
@@ -527,7 +532,7 @@ void c_access(GuestCall &c) {
     std::string gpath = c.cstr(c.arg(0), 1024);
     std::string hpath = vfs::translate(c.rt, gpath);
     std::error_code ec;
-    const bool found = std::filesystem::exists(hpath, ec);
+    const bool found = vfs::parent_dir_exists(hpath) && std::filesystem::exists(hpath, ec);
     c.trace("access(\"%s\") -> \"%s\" %s", gpath.c_str(), hpath.c_str(), found ? "OK" : "NOT FOUND");
     c.set_result(found ? 0u : (std::uint32_t)-1);
 }
@@ -536,6 +541,7 @@ void c_mkdir(GuestCall &c) {
     std::string hpath = vfs::translate(c.rt, c.cstr(c.arg(0), 1024));
     std::error_code ec;
     std::filesystem::create_directories(hpath, ec);
+    vfs::invalidate_dir_cache();
     /* "already exists" is not an error for any caller here. */
     c.set_result(0);
 }
@@ -544,6 +550,7 @@ void c_unlink(GuestCall &c) {
     std::string hpath = vfs::translate(c.rt, c.cstr(c.arg(0), 1024));
     std::error_code ec;
     c.set_result(std::filesystem::remove(hpath, ec) ? 0u : (std::uint32_t)-1);
+    vfs::invalidate_dir_cache();
 }
 
 /* rmdir removes an EMPTY directory only, so remove() (not remove_all) is the
@@ -552,6 +559,7 @@ void c_rmdir(GuestCall &c) {
     std::string hpath = vfs::translate(c.rt, c.cstr(c.arg(0), 1024));
     std::error_code ec;
     c.set_result(std::filesystem::remove(hpath, ec) ? 0u : (std::uint32_t)-1);
+    vfs::invalidate_dir_cache();
 }
 
 /* Accepted and ignored. Every guest path is rewritten by vfs::translate()
@@ -943,6 +951,7 @@ void c_rename(GuestCall &c) {
     std::string to = vfs::translate(c.rt, c.cstr(c.arg(1), 1024));
     std::error_code ec;
     std::filesystem::rename(from, to, ec);
+    vfs::invalidate_dir_cache();
     c.set_result(ec ? (std::uint32_t)-1 : 0u);
 }
 
