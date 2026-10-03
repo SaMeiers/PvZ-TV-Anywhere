@@ -101,6 +101,17 @@ private:
      * anything. Capped, because a game that has run out will ask again. */
     void report_exhausted(uint32_t want, uint32_t align);
 
+    /* Small blocks are recycled through per-size bins before they ever reach
+     * the two indices above: loading the resources is millions of short-lived
+     * allocations of a handful of sizes, and each one used to cost a multimap
+     * and a map update on the way in and again on the way out. A binned block
+     * stays carved out (no coalescing), so the bins are capped, and emptied
+     * back into the indices whenever a request would otherwise fail. */
+    static constexpr uint32_t kBinMax = 1024;   /* largest size served from a bin */
+    static constexpr size_t kBinDepth = 8192;   /* blocks kept per size */
+    std::vector<uint32_t> bins_[kBinMax / 8 + 1];
+    void flush_bins();
+
     static constexpr size_t kOpLogMax = 16384;
     FreeBySize free_by_size_;
     std::map<uint32_t, FreeNode> free_by_addr_;

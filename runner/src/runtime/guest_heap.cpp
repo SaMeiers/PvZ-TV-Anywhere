@@ -40,6 +40,9 @@ void GuestHeap::init(uint32_t base, uint32_t size) {
     total_ = size;
     in_use_ = peak_in_use_ = 0;
     exhausted_reports_ = 0;
+    /* The game keeps a few hundred thousand blocks live once loaded; growing
+     * the table to that one rehash at a time showed up in the profile. */
+    allocated_.reserve(1u << 19);
     insert_free({base, size});
     /* [runtime] heap_quarantine=N: hold the N most-recently-freed blocks out of
      * the reuse pool. If the wcscmp loop vanishes with a large N, the
@@ -54,11 +57,25 @@ uint32_t GuestHeap::alloc(uint32_t n, uint32_t lr) {
     if (n == 0) n = 1;
     n = (n + 7u) & ~7u;
 
+    if (n <= kBinMax && !bins_[n / 8].empty()) {
+        const uint32_t addr = bins_[n / 8].back();
+        bins_[n / 8].pop_back();
+        allocated_[addr] = n;
+        in_use_ += n;
+        if (in_use_ > peak_in_use_) peak_in_use_ = in_use_;
+        log_op(alloc_log_, addr, n, lr);
+        return addr;
+    }
+
     /* Smallest block that fits, rather than the first one that does: the
      * size index makes best-fit the cheap option, and it leaves the large
      * holes intact for the large requests instead of shaving every one of
      * them down. */
     auto sit = free_by_size_.lower_bound(n);
+    if (sit == free_by_size_.end()) {
+        flush_bins();
+        sit = free_by_size_.lower_bound(n);
+    }
     if (sit == free_by_size_.end()) {
         report_exhausted(n, 8);
         return 0;
@@ -98,23 +115,26 @@ uint32_t GuestHeap::alloc_aligned(uint32_t n, uint32_t align, uint32_t lr) {
      * buffers -- so a scan is affordable here in a way it is not in alloc().
      * Starting at lower_bound(n) skips every hole too small to be a
      * candidate whatever its alignment. */
-    for (auto sit = free_by_size_.lower_bound(n); sit != free_by_size_.end(); ++sit) {
-        const uint32_t base = sit->second;
-        const uint32_t end = base + sit->first;
-        const uint32_t addr = (base + pow2 - 1) & ~(pow2 - 1);
-        if (addr < base || addr + n > end) continue; /* alignment padding doesn't fit */
+    for (int pass = 0; pass < 2; ++pass) {
+        if (pass == 1) flush_bins(); /* last resort: the bins may hold the room */
+        for (auto sit = free_by_size_.lower_bound(n); sit != free_by_size_.end(); ++sit) {
+            const uint32_t base = sit->second;
+            const uint32_t end = base + sit->first;
+            const uint32_t addr = (base + pow2 - 1) & ~(pow2 - 1);
+            if (addr < base || addr + n > end) continue; /* alignment padding doesn't fit */
 
-        /* Carve the aligned span out and give the head/tail remainders back,
-         * so alignment padding is reusable instead of leaked. */
-        free_by_size_.erase(sit); /* invalidates sit -- must not loop again */
-        free_by_addr_.erase(base);
-        if (addr > base) insert_free({base, addr - base});
-        if (addr + n < end) insert_free({addr + n, end - (addr + n)});
-        allocated_[addr] = n;
-        in_use_ += n;
-        if (in_use_ > peak_in_use_) peak_in_use_ = in_use_;
-        log_op(alloc_log_, addr, n, lr);
-        return addr;
+            /* Carve the aligned span out and give the head/tail remainders back,
+             * so alignment padding is reusable instead of leaked. */
+            free_by_size_.erase(sit); /* invalidates sit -- must not loop again */
+            free_by_addr_.erase(base);
+            if (addr > base) insert_free({base, addr - base});
+            if (addr + n < end) insert_free({addr + n, end - (addr + n)});
+            allocated_[addr] = n;
+            in_use_ += n;
+            if (in_use_ > peak_in_use_) peak_in_use_ = in_use_;
+            log_op(alloc_log_, addr, n, lr);
+            return addr;
+        }
     }
     report_exhausted(n, align);
     return 0;
@@ -138,7 +158,19 @@ void GuestHeap::free_ptr(uint32_t addr, uint32_t lr) {
         insert_free(released);
         return;
     }
+    if (n <= kBinMax && bins_[n / 8].size() < kBinDepth) {
+        bins_[n / 8].push_back(addr);
+        return;
+    }
     insert_free({addr, n});
+}
+
+void GuestHeap::flush_bins() {
+    for (auto &bin : bins_) {
+        const uint32_t n = static_cast<uint32_t>(&bin - bins_) * 8;
+        for (uint32_t addr : bin) insert_free({addr, n});
+        bin.clear();
+    }
 }
 
 uint32_t GuestHeap::size_of(uint32_t addr) {
@@ -207,6 +239,9 @@ void GuestHeap::insert_free(Block blk) {
 }
 
 void GuestHeap::log_op(std::deque<OpRec> &log, uint32_t addr, uint32_t size, uint32_t lr) {
+    /* Forensics for query_addr()/history(): two deque pushes per malloc/free,
+     * which only a diagnostic build has any use for. */
+    if (!diag::kBuiltIn) return;
     log.push_back({addr, size, lr, ++op_seq_});
     if (log.size() > kOpLogMax) log.pop_front();
 }
