@@ -48,10 +48,14 @@ enum JitTuning : std::uint32_t {
     /* Replace the decoders the game carries (libvorbisfile) with host ones,
      * see dependencies/hle.h. Not a JIT setting, but measured the same way. */
     kJitHostDecoders = 1u << 4,
+
+    /* List "neon" in the guest's /proc/cpuinfo (vfs::write_pseudo_cpuinfo).
+     * libpng and FMOD both read it to pick their NEON code. */
+    kJitGuestNeon = 1u << 5,
 };
 
 inline constexpr std::uint32_t kDefaultJitTuning =
-    kJitNoCycleCounting | kJitLooseFloat | kJitFastmem | kJitHostDecoders;
+    kJitNoCycleCounting | kJitLooseFloat | kJitFastmem | kJitHostDecoders | kJitGuestNeon;
 
 inline std::uint32_t jit_tuning() {
     static const std::uint32_t value = [] {

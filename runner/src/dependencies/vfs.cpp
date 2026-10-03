@@ -3,6 +3,7 @@
 #include <pvz_tv/dependencies/vfs.h>
 
 #include <pvz_tv/config.h>
+#include <pvz_tv/runtime/jit_tuning.h>
 
 #include <cctype>
 #include <cstring>
@@ -251,18 +252,19 @@ void write_pseudo_cpuinfo() {
     if (!f) return;
     unsigned cpus = std::thread::hardware_concurrency();
     if (cpus == 0) cpus = 4;
+    const char *neon = (jit_tuning() & kJitGuestNeon) ? "neon " : "";
     for (unsigned i = 0; i < cpus; ++i) {
         std::fprintf(f,
                      "processor\t: %u\n"
                      "model name\t: ARMv7 Processor rev 4 (v7l)\n"
                      "BogoMIPS\t: 26.00\n"
-                     "Features\t: half thumb fastmult vfp edsp neon vfpv3 tls vfpv4 idiva idivt lpae evtstrm\n"
+                     "Features\t: half thumb fastmult vfp edsp %svfpv3 tls vfpv4 idiva idivt lpae evtstrm\n"
                      "CPU implementer\t: 0x41\n"
                      "CPU architecture: 7\n"
                      "CPU variant\t: 0x0\n"
                      "CPU part\t: 0xd03\n"
                      "CPU revision\t: 4\n\n",
-                     i);
+                     i, neon);
     }
     std::fprintf(f, "Hardware\t: pvztv-runner\n");
     std::fclose(f);
