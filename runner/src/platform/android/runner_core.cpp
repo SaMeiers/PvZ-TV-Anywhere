@@ -1,5 +1,6 @@
 #include <pvz_tv/diagnostics.h>
 #include <pvz_tv/dependencies/vfs.h>
+#include <pvz_tv/dependencies/hle.h>
 #include "runner_core.h"
 #include <pvz_tv/surface.h>
 #include <pvz_tv/config.h>
@@ -873,6 +874,7 @@ bool RunnerCore::init(const char *game_so_path, const char *data_dir) {
     runtime_.heap.init(kHeapBase, kHeapSize);
     initialize_data_imports(&image_, &runtime_);
     setup_transmension_bridge(&image_, &runtime_);
+    LOGI("Host overrides installed: %u", install_guest_overrides(&image_));
 
     const auto &table = import_table();
     s_handlers.assign(image_.trampoline_count, nullptr);

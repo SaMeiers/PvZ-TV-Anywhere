@@ -42,6 +42,8 @@ add_library(pvztv_runner ${PVZTV_RUNNER_KIND}
     src/dependencies/libstdcxx.cpp
     src/dependencies/libz.cpp
     src/dependencies/vfs.cpp
+    src/dependencies/hle.cpp
+    src/dependencies/hle_vorbis.cpp
 )
 
 # The diagnostic build traces every call the guest makes into the host; the
@@ -53,6 +55,11 @@ endif()
 
 target_include_directories(pvztv_runner PUBLIC include)
 target_include_directories(pvztv_runner PRIVATE src)
+# stb_vorbis is compiled inside hle_vorbis.cpp; it is third-party code, so its
+# warnings are not ours to fix.
+set_source_files_properties(src/dependencies/hle_vorbis.cpp PROPERTIES
+    INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/stb"
+    COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/W0,-w>")
 target_compile_features(pvztv_runner PUBLIC cxx_std_20)
 set_target_properties(pvztv_runner PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(pvztv_runner PUBLIC dynarmic)

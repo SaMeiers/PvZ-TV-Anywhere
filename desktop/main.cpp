@@ -41,6 +41,7 @@
 #include <pvz_tv/gfx/gl_requirements.h>
 #include <pvz_tv/config.h>
 #include <pvz_tv/dependencies/vfs.h>
+#include <pvz_tv/dependencies/hle.h>
 #include <pvz_tv/diagnostics.h>
 
 // Global window handle for EGL layer
@@ -942,6 +943,7 @@ int main(int argc, char *argv[]) {
 
     // Setup Transmension NativeApp / BridgeApp singletons
     setup_transmension_bridge(&image, &rt);
+    printf("[+] Host overrides installed: %u\n", pvz_tv::install_guest_overrides(&image));
 
     // Build O(1) import handler cache
     const auto &table = pvz_tv::import_table();

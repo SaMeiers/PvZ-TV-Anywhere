@@ -44,9 +44,14 @@ enum JitTuning : std::uint32_t {
      * one -- instead of a page-table walk on every access. Needs the loader's
      * 4 GiB reservation (mem_reserved_4g); without it this bit does nothing. */
     kJitFastmem = 1u << 3,
+
+    /* Replace the decoders the game carries (libvorbisfile) with host ones,
+     * see dependencies/hle.h. Not a JIT setting, but measured the same way. */
+    kJitHostDecoders = 1u << 4,
 };
 
-inline constexpr std::uint32_t kDefaultJitTuning = kJitNoCycleCounting | kJitLooseFloat | kJitFastmem;
+inline constexpr std::uint32_t kDefaultJitTuning =
+    kJitNoCycleCounting | kJitLooseFloat | kJitFastmem | kJitHostDecoders;
 
 inline std::uint32_t jit_tuning() {
     static const std::uint32_t value = [] {

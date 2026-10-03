@@ -1,4 +1,5 @@
 #include <pvz_tv/dependencies/dependency.h>
+#include <pvz_tv/dependencies/hle.h>
 
 #include <pvz_tv/diagnostics.h>
 
@@ -214,6 +215,7 @@ const ImportTable &import_table() {
         register_libc_extra(t);
         register_libdl(t);
         register_libaudio(t);
+        register_hle(t);
         return t;
     }();
     return table;
