@@ -19,16 +19,21 @@ public class GuestLibsExtractor {
     private static final String KEY_APK_TIMESTAMP = "apk_timestamp";
 
     /**
-     * Carpeta donde el juego guarda las partidas.
+     * La carpeta de archivos del juego: donde escribe sus partidas, el
+     * ZOMBATAR.PNG y su perfil.
      *
-     * En 32 bits el juego escribe en userdata/, pero bajo el runner de 64 bits
-     * corre con data/ como directorio de trabajo y sus partidas acaban en
-     * data/userdata/. Quien toque los saves tiene que preguntar aqui: importar
-     * o respaldar la carpeta equivocada no da error, simplemente no hace nada.
+     * En 32 bits es la propia carpeta de datos. Bajo el runner de 64 bits el
+     * juego recibe data/ como carpeta de archivos, asi que todo lo suyo cuelga
+     * de data/. Quien lea o escriba algo del juego tiene que preguntar aqui:
+     * usar la carpeta equivocada no da error, simplemente no hace nada.
      */
+    public static File getGameFilesDir(File dataDir) {
+        return is64Bit() ? new File(dataDir, "data") : dataDir;
+    }
+
+    /** Carpeta donde el juego guarda las partidas. */
     public static File getSaveDir(File dataDir) {
-        return is64Bit() ? new File(new File(dataDir, "data"), "userdata")
-                         : new File(dataDir, "userdata");
+        return new File(getGameFilesDir(dataDir), "userdata");
     }
 
     public static boolean is64Bit() {

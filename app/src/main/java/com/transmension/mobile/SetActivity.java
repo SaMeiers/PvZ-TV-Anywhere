@@ -1111,7 +1111,7 @@ public class SetActivity extends Activity {
         Button zombatarButton = new Button(this);
         zombatarButton.setText(R.string.addon_appearance_export_zombatar);
         zombatarButton.setOnClickListener(view -> {
-            File file = new File(getUserDataFile(this), "ZOMBATAR.PNG");
+            File file = new File(GuestLibsExtractor.getGameFilesDir(getUserDataFile(this)), "ZOMBATAR.PNG");
             if (file.exists()) {
                 try {
                     MediaStore.Images.Media.insertImage(getContentResolver(), file.getAbsolutePath(), "", "");
@@ -1412,7 +1412,10 @@ public class SetActivity extends Activity {
 
         if (requestCode == REQUEST_CODE_EXPORT_LOG && resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
 
-            String[] cmd = {"logcat", "-d", "-s", "pvztv"};
+            // Bajo el runner de 64 bits el log del juego sale con la etiqueta
+            // RunnerGuest, y el del runner con las suyas; con solo "pvztv" el
+            // archivo exportado quedaba vacio.
+            String[] cmd = {"logcat", "-d", "-s", "pvztv", "RunnerGuest", "RunnerCore", "RunnerEGL", "RunnerVFS", "GuestLibsExtractor"};
 
             try (InputStream in = Runtime.getRuntime().exec(cmd).getInputStream();
 
@@ -1472,7 +1475,7 @@ public class SetActivity extends Activity {
                 try {
                     OutputStream outputStream = getContentResolver().openOutputStream(uri);
                     if (outputStream != null) {
-                        File userdata = new File(getUserDataFile(this), "userdata");
+                        File userdata = GuestLibsExtractor.getSaveDir(getUserDataFile(this));
                         ZipOutputStream zipOutputStream = new ZipOutputStream(outputStream);
                         addFolderToZip(userdata, zipOutputStream);
                         zipOutputStream.close();
@@ -1493,9 +1496,9 @@ public class SetActivity extends Activity {
                 try {
                     InputStream inputStream = getContentResolver().openInputStream(uri);
                     if (inputStream != null) {
-                        File userdata_import = new File(getUserDataFile(this), "userdata");
+                        File userdata_import = GuestLibsExtractor.getSaveDir(getUserDataFile(this));
                         deleteRecursive(userdata_import);
-                        if (!userdata_import.exists()) userdata_import.mkdir();
+                        if (!userdata_import.exists()) userdata_import.mkdirs();
                         ZipInputStream zipInputStream = new ZipInputStream(inputStream);
                         // 读取ZipEntry对象
                         ZipEntry zipEntry = zipInputStream.getNextEntry();
@@ -2021,7 +2024,7 @@ public class SetActivity extends Activity {
                     view.setOnLongClickListener(view12 -> {
                         String backupFile = backupsList.get(i).first;
                         File file = new File(getUserDataFile(getActivity()), backupFile);
-                        File destFile = new File(getUserDataFile(getActivity()), "userdata");
+                        File destFile = GuestLibsExtractor.getSaveDir(getUserDataFile(getActivity()));
                         deleteRecursive(destFile);
                         try {
                             copyDir(file, destFile);

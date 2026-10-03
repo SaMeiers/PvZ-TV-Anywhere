@@ -1210,9 +1210,19 @@ public class EnhanceActivity extends MainActivity {
         }
     }
 
+    /**
+     * Bajo el runner de 64 bits el juego ve su carpeta de datos como "." y
+     * manda rutas como "./replays". Funcionaban solo porque el runner hace
+     * chdir a esa carpeta; aqui se resuelven contra ella explicitamente.
+     */
+    private String resolveGamePath(String path) {
+        if (path == null || path.isEmpty() || new File(path).isAbsolute()) return path;
+        return new File(getUserDataFile(), path).getAbsolutePath();
+    }
+
     public void showReplayImportPicker(String targetDirPath) {
         runOnUiThread(() -> {
-            mReplayImportTargetDir = targetDirPath;
+            mReplayImportTargetDir = resolveGamePath(targetDirPath);
             Toast.makeText(this, getString(R.string.replay_import_select_rpl), Toast.LENGTH_SHORT).show();
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -1223,7 +1233,7 @@ public class EnhanceActivity extends MainActivity {
 
     public void showReplayExportPicker(String sourceFilePath, String suggestedFileName) {
         runOnUiThread(() -> {
-            mReplayExportSourcePath = sourceFilePath;
+            mReplayExportSourcePath = resolveGamePath(sourceFilePath);
             Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("application/octet-stream");
