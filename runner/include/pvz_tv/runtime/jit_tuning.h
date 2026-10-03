@@ -45,17 +45,22 @@ enum JitTuning : std::uint32_t {
      * 4 GiB reservation (mem_reserved_4g); without it this bit does nothing. */
     kJitFastmem = 1u << 3,
 
-    /* Replace the decoders the game carries (Tremor, libpng) with host ones,
-     * see dependencies/hle.h. Not a JIT setting, but measured the same way. */
+    /* Replace the decoders the game carries (Tremor, libpng), and a few hot
+     * functions that live on imports, with host ones; see dependencies/hle.h.
+     * Not a JIT setting, but measured the same way. */
     kJitHostDecoders = 1u << 4,
 
     /* List "neon" in the guest's /proc/cpuinfo (vfs::write_pseudo_cpuinfo).
      * libpng and FMOD both read it to pick their NEON code. */
     kJitGuestNeon = 1u << 5,
+
+    /* Drop GL calls that set state to what it already is (GlStateCache in
+     * platform/android/libgles_android.cpp). Not a JIT setting either. */
+    kJitGlStateFilter = 1u << 6,
 };
 
 inline constexpr std::uint32_t kDefaultJitTuning =
-    kJitNoCycleCounting | kJitLooseFloat | kJitFastmem | kJitHostDecoders | kJitGuestNeon;
+    kJitNoCycleCounting | kJitLooseFloat | kJitFastmem | kJitHostDecoders | kJitGuestNeon | kJitGlStateFilter;
 
 inline std::uint32_t jit_tuning() {
     static const std::uint32_t value = [] {

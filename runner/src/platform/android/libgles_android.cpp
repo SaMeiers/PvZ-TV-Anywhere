@@ -18,6 +18,7 @@
 
 #include <pvz_tv/dependencies/dependency.h>
 #include <pvz_tv/config.h>
+#include <pvz_tv/runtime/jit_tuning.h>
 #include <pvz_tv/surface.h>
 
 #include <EGL/egl.h>
@@ -33,6 +34,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <set>
 #include <string>
@@ -49,6 +51,149 @@ namespace {
  * render-size viewport and the picture sits in one corner of a larger or
  * maximised window. Only the composite draws to framebuffer 0. */
 std::atomic<GLuint> g_bound_fbo{0};
+
+/* The state the guest last set, so a call that would set it to what it
+ * already is can be dropped.
+ *
+ * The engine's render-state layer sets blending, texturing and the texture
+ * environment before every batch whether or not anything changed, and on a
+ * weak phone's GLES 1.1 driver even a redundant call is a validation pass.
+ * Only the render thread makes GL calls, into the one context the runner
+ * creates and keeps for the whole run (see libegl_android.cpp), and no host
+ * code changes this state behind the guest, so the cache stays exact.
+ * Everything starts unknown and the first call always reaches GL; a cap or
+ * parameter not listed here passes straight through. kJitGlStateFilter
+ * turns the whole thing off. */
+struct GlStateCache {
+    static constexpr GLuint kUnknown = 0xFFFFFFFFu;
+    static constexpr int kUnits = 8;
+    static constexpr GLuint kMaxTrackedTexture = 1u << 16;
+
+    GLenum active_unit;               /* glActiveTexture's argument */
+    GLenum client_unit;               /* glClientActiveTexture's argument */
+    GLuint bound[kUnits];             /* GL_TEXTURE_2D binding per unit */
+    std::uint8_t tex2d[kUnits];       /* GL_TEXTURE_2D enable per unit: 0 off, 1 on, 2 unknown */
+    std::uint8_t coord_array[kUnits]; /* GL_TEXTURE_COORD_ARRAY per client unit, same */
+    GLfloat env_mode[kUnits];         /* GL_TEXTURE_ENV_MODE per unit, NaN = unknown */
+    std::uint8_t caps[16];            /* see cap_slot() */
+    std::uint8_t arrays[3];           /* vertex, color, normal arrays */
+    GLenum blend_src, blend_dst;
+    /* min filter, mag filter, wrap s, wrap t of each texture name; 0 = unknown */
+    std::vector<std::array<GLint, 4>> tex_params;
+
+    GlStateCache() {
+        active_unit = client_unit = kUnknown;
+        for (int i = 0; i < kUnits; ++i) {
+            bound[i] = kUnknown;
+            tex2d[i] = coord_array[i] = 2;
+            env_mode[i] = std::numeric_limits<GLfloat>::quiet_NaN();
+        }
+        std::memset(caps, 2, sizeof(caps));
+        std::memset(arrays, 2, sizeof(arrays));
+        blend_src = blend_dst = kUnknown;
+    }
+
+    static int unit_of(GLenum unit) {
+        const GLuint i = unit - GL_TEXTURE0;
+        return i < (GLuint)kUnits ? (int)i : -1;
+    }
+
+    static int cap_slot(GLenum cap) {
+        switch (cap) {
+        case GL_BLEND: return 0;
+        case GL_ALPHA_TEST: return 1;
+        case GL_DEPTH_TEST: return 2;
+        case GL_CULL_FACE: return 3;
+        case GL_SCISSOR_TEST: return 4;
+        case GL_LIGHTING: return 5;
+        case GL_FOG: return 6;
+        case GL_COLOR_MATERIAL: return 7;
+        case GL_DITHER: return 8;
+        case GL_STENCIL_TEST: return 9;
+        case GL_NORMALIZE: return 10;
+        case GL_RESCALE_NORMAL: return 11;
+        case GL_LINE_SMOOTH: return 12;
+        case GL_POINT_SMOOTH: return 13;
+        case GL_MULTISAMPLE: return 14;
+        case GL_POLYGON_OFFSET_FILL: return 15;
+        default: return -1;
+        }
+    }
+
+    static int array_slot(GLenum array) {
+        switch (array) {
+        case GL_VERTEX_ARRAY: return 0;
+        case GL_COLOR_ARRAY: return 1;
+        case GL_NORMAL_ARRAY: return 2;
+        default: return -1;
+        }
+    }
+
+    static int param_slot(GLenum pname) {
+        switch (pname) {
+        case GL_TEXTURE_MIN_FILTER: return 0;
+        case GL_TEXTURE_MAG_FILTER: return 1;
+        case GL_TEXTURE_WRAP_S: return 2;
+        case GL_TEXTURE_WRAP_T: return 3;
+        default: return -1;
+        }
+    }
+
+    /* Where the flag for an enable cap lives, or nullptr for one not tracked. */
+    std::uint8_t *enable_flag(GLenum cap) {
+        if (cap == GL_TEXTURE_2D) {
+            const int u = unit_of(active_unit);
+            return u < 0 ? nullptr : &tex2d[u];
+        }
+        const int s = cap_slot(cap);
+        return s < 0 ? nullptr : &caps[s];
+    }
+
+    std::uint8_t *client_flag(GLenum array) {
+        if (array == GL_TEXTURE_COORD_ARRAY) {
+            const int u = unit_of(client_unit);
+            return u < 0 ? nullptr : &coord_array[u];
+        }
+        const int s = array_slot(array);
+        return s < 0 ? nullptr : &arrays[s];
+    }
+
+    /* The cached value of a parameter of the bound 2D texture, or nullptr. */
+    GLint *tex_param(GLenum target, GLenum pname) {
+        const int u = unit_of(active_unit);
+        if (target != GL_TEXTURE_2D || u < 0) return nullptr;
+        const GLuint tex = bound[u];
+        const int slot = param_slot(pname);
+        if (tex == kUnknown || tex >= kMaxTrackedTexture || slot < 0) return nullptr;
+        if (tex >= tex_params.size()) tex_params.resize(tex + 1, {0, 0, 0, 0});
+        return &tex_params[tex][slot];
+    }
+
+    /* A name GL hands out anew, or takes back: its parameters are the
+     * defaults again, and a deleted texture leaves every unit it was bound to
+     * on texture 0. */
+    void forget_texture(GLuint tex, bool deleted) {
+        if (tex < tex_params.size()) tex_params[tex] = {0, 0, 0, 0};
+        if (!deleted) return;
+        for (GLuint &b : bound) {
+            if (b == tex) b = 0;
+        }
+    }
+};
+
+GlStateCache *gl_state() {
+    static GlStateCache *const cache = (jit_tuning() & kJitGlStateFilter) ? new GlStateCache : nullptr;
+    return cache;
+}
+
+/* Records an enable flag; false when it already had that value. */
+bool gl_state_change(std::uint8_t *flag, bool on) {
+    if (flag == nullptr) return true;
+    const std::uint8_t want = on ? 1 : 0;
+    if (*flag == want) return false;
+    *flag = want;
+    return true;
+}
 
 /* Drains the host GL error queue after an operation the guest never checks
  * itself. Budgeted, so a per-frame error cannot flood the log. */
@@ -76,6 +221,10 @@ bool gl_peek_error_for_draw(GuestCall &c, const char *what) {
 }
 
 void gl_glActiveTexture(GuestCall &c) {
+    if (GlStateCache *s = gl_state()) {
+        if (s->active_unit == c.arg(0)) return;
+        s->active_unit = GlStateCache::unit_of(c.arg(0)) < 0 ? GlStateCache::kUnknown : c.arg(0);
+    }
     glActiveTexture(c.arg(0));
 }
 
@@ -182,10 +331,22 @@ void gl_glBindFramebuffer(GuestCall &c) {
 }
 
 void gl_glBindTexture(GuestCall &c) {
+    if (GlStateCache *s = gl_state(); s && c.arg(0) == GL_TEXTURE_2D) {
+        const int u = GlStateCache::unit_of(s->active_unit);
+        if (u >= 0) {
+            if (s->bound[u] == c.arg(1)) return;
+            s->bound[u] = c.arg(1);
+        }
+    }
     glBindTexture(c.arg(0), c.arg(1));
 }
 
 void gl_glBlendFunc(GuestCall &c) {
+    if (GlStateCache *s = gl_state()) {
+        if (s->blend_src == c.arg(0) && s->blend_dst == c.arg(1)) return;
+        s->blend_src = c.arg(0);
+        s->blend_dst = c.arg(1);
+    }
     glBlendFunc(c.arg(0), c.arg(1));
 }
 
@@ -210,6 +371,10 @@ void gl_glClearDepthf(GuestCall &c) {
 }
 
 void gl_glClientActiveTexture(GuestCall &c) {
+    if (GlStateCache *s = gl_state()) {
+        if (s->client_unit == c.arg(0)) return;
+        s->client_unit = GlStateCache::unit_of(c.arg(0)) < 0 ? GlStateCache::kUnknown : c.arg(0);
+    }
     glClientActiveTexture(c.arg(0));
 }
 
@@ -467,7 +632,12 @@ void gl_glDeleteShader(GuestCall &c) {
 }
 
 void gl_glDeleteTextures(GuestCall &c) {
-    glDeleteTextures(c.arg(0), (const GLuint *)c.ptr(c.arg(1)));
+    const GLsizei n = (GLsizei)c.arg(0);
+    const GLuint *names = (const GLuint *)c.ptr(c.arg(1), n > 0 ? (std::uint32_t)n * 4 : 0);
+    if (GlStateCache *s = gl_state(); s && names) {
+        for (GLsizei i = 0; i < n; ++i) s->forget_texture(names[i], true);
+    }
+    glDeleteTextures(n, names);
 }
 
 void gl_glDepthFunc(GuestCall &c) {
@@ -483,10 +653,12 @@ void gl_glDepthRangef(GuestCall &c) {
 }
 
 void gl_glDisable(GuestCall &c) {
+    if (GlStateCache *s = gl_state(); s && !gl_state_change(s->enable_flag(c.arg(0)), false)) return;
     glDisable(c.arg(0));
 }
 
 void gl_glDisableClientState(GuestCall &c) {
+    if (GlStateCache *s = gl_state(); s && !gl_state_change(s->client_flag(c.arg(0)), false)) return;
     glDisableClientState(c.arg(0));
 }
 
@@ -495,10 +667,12 @@ void gl_glDisableVertexAttribArray(GuestCall &c) {
 }
 
 void gl_glEnable(GuestCall &c) {
+    if (GlStateCache *s = gl_state(); s && !gl_state_change(s->enable_flag(c.arg(0)), true)) return;
     glEnable(c.arg(0));
 }
 
 void gl_glEnableClientState(GuestCall &c) {
+    if (GlStateCache *s = gl_state(); s && !gl_state_change(s->client_flag(c.arg(0)), true)) return;
     glEnableClientState(c.arg(0));
 }
 
@@ -615,7 +789,12 @@ void oes_glGenerateMipmap(GuestCall &c) {
 }
 
 void gl_glGenTextures(GuestCall &c) {
-    glGenTextures(c.arg(0), (GLuint *)c.ptr(c.arg(1)));
+    const GLsizei n = (GLsizei)c.arg(0);
+    GLuint *names = (GLuint *)c.ptr(c.arg(1), n > 0 ? (std::uint32_t)n * 4 : 0);
+    glGenTextures(n, names);
+    if (GlStateCache *s = gl_state(); s && names) {
+        for (GLsizei i = 0; i < n; ++i) s->forget_texture(names[i], false);
+    }
 }
 
 void gl_glGetError(GuestCall &c) {
@@ -802,6 +981,13 @@ void gl_glTexCoordPointer(GuestCall &c) {
 }
 
 void gl_glTexEnvf(GuestCall &c) {
+    if (GlStateCache *s = gl_state(); s && c.arg(0) == GL_TEXTURE_ENV && c.arg(1) == GL_TEXTURE_ENV_MODE) {
+        const int u = GlStateCache::unit_of(s->active_unit);
+        if (u >= 0) {
+            if (s->env_mode[u] == c.argf(2)) return;
+            s->env_mode[u] = c.argf(2);
+        }
+    }
     glTexEnvf(c.arg(0), c.arg(1), c.argf(2));
 }
 
@@ -811,6 +997,12 @@ void gl_glTexImage2D(GuestCall &c) {
 }
 
 void gl_glTexParameteri(GuestCall &c) {
+    if (GlStateCache *s = gl_state()) {
+        if (GLint *v = s->tex_param(c.arg(0), c.arg(1))) {
+            if (*v == (GLint)c.arg(2)) return;
+            *v = (GLint)c.arg(2);
+        }
+    }
     glTexParameteri(c.arg(0), c.arg(1), c.arg(2));
 }
 
