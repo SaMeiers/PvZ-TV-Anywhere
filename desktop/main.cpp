@@ -248,11 +248,18 @@ public:
     };
     static inline std::mutex s_cb_mutex;
     // A fixed array, not a vector: callers hold a pointer to their slot while
-    // the guest runs, and growing a vector under them freed it.
-    static inline std::array<CallbackJitSlot, pvz_tv::kCallbackSlotMax> s_cb_slots;
+    // the guest runs, and growing a vector under them freed it. A function-
+    // local static because GCC will not instantiate an array of this class's
+    // own nested type, with its default member initializers, as a static
+    // member while the class is still incomplete.
+    static std::array<CallbackJitSlot, pvz_tv::kCallbackSlotMax> &cb_slots() {
+        static std::array<CallbackJitSlot, pvz_tv::kCallbackSlotMax> slots;
+        return slots;
+    }
 
     uint32_t run_guest_callback(uint32_t fn, const uint32_t *args, int nargs) {
         if (!fn || !monitor || !page_table) return 0;
+        auto &s_cb_slots = cb_slots();
 
         CallbackJitSlot *slot = nullptr;
         size_t slot_idx = 0;
