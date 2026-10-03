@@ -11,6 +11,7 @@
 #include <android/log.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -36,6 +37,11 @@ constexpr uint32_t kStackTop = 0x1FE00000;      // 510 MB
 constexpr uint32_t kThreadStacksTop = 0x1FC00000; // 508 MB
 constexpr uint32_t kHeapBase = 0x01000000;      // 16 MB
 constexpr uint32_t kHeapSize = 0x1C000000;      // 448 MB
+// Callback JIT stacks sit between the heap and the guest thread stacks. They
+// used to be carved out of the main thread's own stack, 256 KB below its top.
+constexpr uint32_t kCallbackStacksTop = kThreadStacksTop - kThreadStackMax * 0x00100000;
+static_assert(kCallbackStacksTop - kCallbackSlotMax * kCallbackStackSize >= kHeapBase + kHeapSize,
+              "the callback stacks run into the guest heap");
 
 class PvzTvGuestEnv;
 
@@ -78,14 +84,16 @@ public:
     std::atomic<uint32_t> current_swi{0xFFFFFFFF};
     std::atomic<uint32_t> current_lr{0};
     std::atomic<uint32_t> current_pc{0};
+    std::atomic<uint32_t> current_sp{0};
     std::atomic<const char*> current_state{"idle"};
 
     void AddTicks(uint64_t ticks) override {
         ticks_used += ticks;
 #if defined(PVZTV_DIAGNOSTICS)
-        if (jit) { // watchdog bookkeeping only; two atomic stores per block
+        if (jit) { // watchdog bookkeeping only; three atomic stores per block
             current_pc.store(jit->Regs()[15], std::memory_order_relaxed);
             current_lr.store(jit->Regs()[14], std::memory_order_relaxed);
+            current_sp.store(jit->Regs()[13], std::memory_order_relaxed);
         }
 #endif
     }
@@ -213,15 +221,52 @@ public:
             if (!in_bounds(addr, 4)) continue;
             uint32_t v;
             memcpy(&v, &img->mem[addr], 4);
-            if (!(v & 1)) continue; // Thumb return addresses only
-            for (uint32_t m = 0; m < img->module_count; ++m) {
-                const auto &mod = img->modules[m];
-                if (v >= mod.base && v < mod.base + mod.span) {
-                    LOGE("  [sp%c0x%03X] %08X %s", off < 0 ? '-' : '+', off < 0 ? -off : off, v,
-                         describe(v, a, sizeof(a)));
-                    break;
-                }
+            if (!is_return_address(v)) continue;
+            LOGE("  [sp%c0x%03X] %08X %s%s", off < 0 ? '-' : '+', off < 0 ? -off : off, v,
+                 describe(v, a, sizeof(a)), (v & 1) ? "" : " (ARM)");
+        }
+    }
+
+    // Is `v` a return address: inside a module's .text, right after a BL/BLX?
+    // Checking the call instruction keeps the stack scan to real frames
+    // instead of every pointer that happens to land in a module.
+    bool is_return_address(uint32_t v) const {
+        for (uint32_t m = 0; m < img->module_count; ++m) {
+            const auto &mod = img->modules[m];
+            uint32_t text = mod.base + mod.text_vaddr;
+            uint32_t a = v & ~1u;
+            if (a < text + 4 || a >= text + mod.text_size) continue;
+            if (v & 1) { // Thumb: 32-bit BL/BLX imm, or 16-bit BLX reg
+                uint16_t hi, lo;
+                memcpy(&hi, &img->mem[a - 4], 2);
+                memcpy(&lo, &img->mem[a - 2], 2);
+                return ((hi & 0xF800) == 0xF000 && (lo & 0xC000) == 0xC000) || (lo & 0xFF87) == 0x4780;
             }
+            if (a & 3) return false;
+            uint32_t w;
+            memcpy(&w, &img->mem[a - 4], 4);
+            return (w & 0x0F000000) == 0x0B000000 /* BL */ || (w & 0xFE000000) == 0xFA000000 /* BLX imm */ ||
+                   (w & 0x0FFFFFF0) == 0x012FFF30 /* BLX reg */;
+        }
+        return false;
+    }
+
+    // The watchdog's view of a thread stuck in guest code: the guest call stack,
+    // read racily from the last block boundary, which is plenty for a hang.
+    void dump_stuck_stack(uint32_t tid) const {
+        char a[96];
+        uint32_t sp = current_sp.load(std::memory_order_relaxed);
+        LOGI("[Watchdog] tid=%u has made no host call for a while; pc=%s, guest stack from sp=0x%08X:", tid,
+             describe(current_pc.load(std::memory_order_relaxed), a, sizeof(a)), sp);
+        int frames = 0;
+        for (uint32_t off = 0; off < 0x2000 && frames < 24; off += 4) {
+            uint32_t addr = sp + off;
+            if (!in_bounds(addr, 4)) break;
+            uint32_t v;
+            memcpy(&v, &img->mem[addr], 4);
+            if (!is_return_address(v)) continue;
+            LOGI("[Watchdog]   [sp+0x%04X] %s%s", off, describe(v, a, sizeof(a)), (v & 1) ? "" : " (ARM)");
+            ++frames;
         }
     }
 
@@ -400,7 +445,9 @@ struct CallbackJitSlot {
     uint32_t id = 0;
 };
 static std::mutex s_cb_mutex;
-static std::vector<CallbackJitSlot> s_cb_slots;
+// A fixed array, not a vector: callers hold a pointer to their slot while the
+// guest runs, and growing a vector under them freed it.
+static std::array<CallbackJitSlot, kCallbackSlotMax> s_cb_slots;
 
 uint32_t PvzTvGuestEnv::run_guest_callback(uint32_t fn, const uint32_t *args, int nargs) {
     if (!fn || !monitor || !page_table) return 0;
@@ -418,11 +465,11 @@ uint32_t PvzTvGuestEnv::run_guest_callback(uint32_t fn, const uint32_t *args, in
             }
         }
         if (!slot) {
-            s_cb_slots.emplace_back();
-            slot = &s_cb_slots.back();
-            slot_idx = s_cb_slots.size() - 1;
-            slot->in_use = true;
-            slot->id = 50 + (uint32_t)slot_idx;
+            LOGE("All %u callback JITs are busy; dropping the call to 0x%08X", kCallbackSlotMax, fn);
+            return 0;
+        }
+        if (!slot->jit) {
+            slot->id = kCallbackIdBase + (uint32_t)slot_idx;
 
             slot->env = std::make_unique<PvzTvGuestEnv>();
             slot->env->img = img;
@@ -448,7 +495,7 @@ uint32_t PvzTvGuestEnv::run_guest_callback(uint32_t fn, const uint32_t *args, in
     auto *nested_env = slot->env.get();
     nested_env->should_halt = false;
 
-    uint32_t sp = (kStackTop - 0x40000) - ((uint32_t)slot_idx * 0x20000);
+    uint32_t sp = kCallbackStacksTop - (uint32_t)slot_idx * kCallbackStackSize;
 
     for (int i = 0; i < nargs && i < 4; ++i) {
         nested_jit->Regs()[i] = args[i];
@@ -914,12 +961,23 @@ bool RunnerCore::start() {
         }
 
         unregister_active_jit(s_main_jit.get());
-        LOGI("main() exited with code %d", (int)s_main_jit->Regs()[0]);
-        // A clean return from main() is the game quitting (it already saved in
+        // main() really returning leaves sp where it started. Anything else
+        // that lands on the halt sentinel is the guest jumping through a
+        // smashed return address -- a crash that would otherwise close the
+        // game with nothing in the log but a nonsense exit code.
+        const bool at_sentinel = s_main_jit->Regs()[15] >= image_.trampoline_base &&
+                                 s_main_jit->Regs()[15] < image_.trampoline_base + 16;
+        if (at_sentinel && s_main_jit->Regs()[13] != kStackTop) {
+            LOGE("main() reached the halt sentinel with sp=0x%08X instead of 0x%08X: "
+                 "the guest returned through a corrupted address",
+                 s_main_jit->Regs()[13], kStackTop);
+            s_main_env->dump_crash_state(s_main_jit->Regs()[15]);
+        } else {
+            LOGI("main() exited with code %d", (int)s_main_jit->Regs()[0]);
+        }
+        // Returning to the sentinel is the game quitting (it already saved in
         // LawnApp::Shutdown). A crash halt or stop() must not close the app.
-        if (!runtime_.shutdown_requested.load(std::memory_order_acquire) &&
-            s_main_jit->Regs()[15] >= image_.trampoline_base &&
-            s_main_jit->Regs()[15] < image_.trampoline_base + 16) {
+        if (!runtime_.shutdown_requested.load(std::memory_order_acquire) && at_sentinel) {
             android_runner_finish_activity();
         }
     });
@@ -930,6 +988,11 @@ bool RunnerCore::start() {
     s_watchdog_running.store(true, std::memory_order_release);
     s_watchdog = std::thread([this]() {
         int tick = 0;
+        // Per thread: SVC count at the last tick and how many ticks it has
+        // stayed there. A thread spinning in guest code never calls the host,
+        // so after a few quiet ticks its stack is dumped, once per episode.
+        struct Quiet { uint32_t svcs = 0; int ticks = 0; };
+        std::vector<std::pair<PvzTvGuestEnv *, Quiet>> quiet;
         while (s_watchdog_running.load(std::memory_order_relaxed)) {
             std::this_thread::sleep_for(std::chrono::seconds(2));
             if (!s_watchdog_running.load(std::memory_order_relaxed)) break;
@@ -947,6 +1010,15 @@ bool RunnerCore::start() {
                      swi, swi_name,
                      pc, lr,
                      entry.env->svc_calls);
+
+                auto q = std::find_if(quiet.begin(), quiet.end(), [&](const auto &p) { return p.first == entry.env; });
+                if (q == quiet.end()) q = quiet.insert(quiet.end(), {entry.env, Quiet{}});
+                const bool in_host_call = pc < PVZ2_SO_BASE; // parked on an import trampoline
+                if (entry.env->svc_calls != q->second.svcs || in_host_call) {
+                    q->second = Quiet{entry.env->svc_calls, 0};
+                } else if (++q->second.ticks == 3) {
+                    entry.env->dump_stuck_stack(entry.tid);
+                }
             }
         }
     });

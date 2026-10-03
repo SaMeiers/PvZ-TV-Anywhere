@@ -25,10 +25,19 @@ namespace pvz_tv {
 
 /* processor_id 0 is used by every synchronous run_export()/run_at_offset()
  * call (they never run concurrently with each other); spawned guest threads
- * get ids 2..kThreadStackMax+1 (see GuestRuntime::next_thread_id), so the
- * monitor needs a slot for each of those too. */
+ * get ids 2..kThreadStackMax+1 (see GuestRuntime::next_thread_id); and the
+ * callback JITs -- a host function calling back into the guest, which is also
+ * every JNI call arriving from Java -- take the kCallbackSlotMax ids after
+ * those. Dynarmic indexes the monitor by processor_id without a bounds check,
+ * so an id past the end writes over the host heap: every id must be counted
+ * here. */
 constexpr uint32_t kThreadStackMax = 16;
-constexpr size_t kMonitorProcessorCount = kThreadStackMax + 2;
+constexpr uint32_t kCallbackSlotMax = 8;
+constexpr uint32_t kCallbackIdBase = kThreadStackMax + 2;
+constexpr size_t kMonitorProcessorCount = kCallbackIdBase + kCallbackSlotMax;
+
+/* Each callback JIT runs on its own stack, below the guest thread stacks. */
+constexpr uint32_t kCallbackStackSize = 0x00040000;
 
 /* Bump allocator for opaque JNI "handles" (jclass/jmethodID/jfieldID/...):
  * the guest never dereferences these as real memory, only passes them back

@@ -52,6 +52,11 @@ constexpr uint32_t kStackTop = 0x1FE00000; // 510 MB
 constexpr uint32_t kThreadStacksTop = 0x1FC00000; // 508 MB
 constexpr uint32_t kHeapBase = 0x01000000; // 16 MB (above SOs)
 constexpr uint32_t kHeapSize = 0x1C000000; // 448 MB heap (ends at 0x1D000000)
+// Callback JIT stacks sit between the heap and the guest thread stacks. They
+// used to be carved out of the main thread's own stack, 256 KB below its top.
+constexpr uint32_t kCallbackStacksTop = kThreadStacksTop - pvz_tv::kThreadStackMax * 0x00100000;
+static_assert(kCallbackStacksTop - pvz_tv::kCallbackSlotMax * pvz_tv::kCallbackStackSize >= kHeapBase + kHeapSize,
+              "the callback stacks run into the guest heap");
 
 class PvzTvGuestEnv;
 struct ActiveJitInfo {
@@ -230,7 +235,9 @@ public:
         uint32_t id = 0;
     };
     static inline std::mutex s_cb_mutex;
-    static inline std::vector<CallbackJitSlot> s_cb_slots;
+    // A fixed array, not a vector: callers hold a pointer to their slot while
+    // the guest runs, and growing a vector under them freed it.
+    static inline std::array<CallbackJitSlot, pvz_tv::kCallbackSlotMax> s_cb_slots;
 
     uint32_t run_guest_callback(uint32_t fn, const uint32_t *args, int nargs) {
         if (!fn || !monitor || !page_table) return 0;
@@ -248,11 +255,11 @@ public:
                 }
             }
             if (!slot) {
-                s_cb_slots.emplace_back();
-                slot = &s_cb_slots.back();
-                slot_idx = s_cb_slots.size() - 1;
-                slot->in_use = true;
-                slot->id = 50 + (uint32_t)slot_idx;
+                fprintf(stderr, "All %u callback JITs are busy; dropping the call to 0x%08X\n", pvz_tv::kCallbackSlotMax, fn);
+                return 0;
+            }
+            if (!slot->jit) {
+                slot->id = pvz_tv::kCallbackIdBase + (uint32_t)slot_idx;
 
                 slot->env = std::make_unique<PvzTvGuestEnv>();
                 slot->env->img = img;
@@ -279,7 +286,7 @@ public:
         auto *nested_env = slot->env.get();
         nested_env->should_halt = false;
 
-        uint32_t sp = (kStackTop - 0x40000) - ((uint32_t)slot_idx * 0x20000);
+        uint32_t sp = kCallbackStacksTop - (uint32_t)slot_idx * pvz_tv::kCallbackStackSize;
 
         for (int i = 0; i < nargs && i < 4; ++i) {
             nested_jit->Regs()[i] = args[i];
