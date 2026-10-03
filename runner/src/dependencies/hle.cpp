@@ -11,6 +11,7 @@ const GuestOverrides &overrides() {
     static const GuestOverrides o = [] {
         GuestOverrides list;
         register_hle_vorbis(list);
+        register_hle_image(list);
         return list;
     }();
     return o;

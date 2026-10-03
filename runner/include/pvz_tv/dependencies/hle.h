@@ -42,5 +42,6 @@ void register_hle(ImportTable &t);
 unsigned install_guest_overrides(pvz2_elf_image_t *img);
 
 void register_hle_vorbis(GuestOverrides &o);
+void register_hle_image(GuestOverrides &o);
 
 }  // namespace pvz_tv

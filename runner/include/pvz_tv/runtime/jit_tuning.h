@@ -45,7 +45,7 @@ enum JitTuning : std::uint32_t {
      * 4 GiB reservation (mem_reserved_4g); without it this bit does nothing. */
     kJitFastmem = 1u << 3,
 
-    /* Replace the decoders the game carries (libvorbisfile) with host ones,
+    /* Replace the decoders the game carries (Tremor, libpng) with host ones,
      * see dependencies/hle.h. Not a JIT setting, but measured the same way. */
     kJitHostDecoders = 1u << 4,
 

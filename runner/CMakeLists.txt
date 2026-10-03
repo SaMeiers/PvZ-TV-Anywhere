@@ -44,6 +44,7 @@ add_library(pvztv_runner ${PVZTV_RUNNER_KIND}
     src/dependencies/vfs.cpp
     src/dependencies/hle.cpp
     src/dependencies/hle_vorbis.cpp
+    src/dependencies/hle_image.cpp
 )
 
 # The diagnostic build traces every call the guest makes into the host; the
@@ -55,9 +56,9 @@ endif()
 
 target_include_directories(pvztv_runner PUBLIC include)
 target_include_directories(pvztv_runner PRIVATE src)
-# stb_vorbis is compiled inside hle_vorbis.cpp; it is third-party code, so its
-# warnings are not ours to fix.
-set_source_files_properties(src/dependencies/hle_vorbis.cpp PROPERTIES
+# stb_vorbis and stb_image are compiled inside the hle_*.cpp that use them; they
+# are third-party code, so their warnings are not ours to fix.
+set_source_files_properties(src/dependencies/hle_vorbis.cpp src/dependencies/hle_image.cpp PROPERTIES
     INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/stb"
     COMPILE_OPTIONS "$<IF:$<CXX_COMPILER_ID:MSVC>,/W0,-w>")
 target_compile_features(pvztv_runner PUBLIC cxx_std_20)
