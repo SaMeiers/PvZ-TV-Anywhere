@@ -1007,6 +1007,23 @@ void gl_glGenFramebuffers(GuestCall &c) {
     glGenFramebuffers(c.arg(0), (GLuint *)c.ptr(c.arg(1)));
 }
 
+/* The rest of GL_OES_framebuffer_object, which the game asks for through
+ * eglGetProcAddress; on a desktop context they are core functions. */
+void gl_glIsFramebuffer(GuestCall &c) { c.regs[0] = glIsFramebuffer(c.arg(0)); }
+void gl_glGenRenderbuffers(GuestCall &c) { glGenRenderbuffers(c.arg(0), (GLuint *)c.ptr(c.arg(1))); }
+void gl_glBindRenderbuffer(GuestCall &c) { glBindRenderbuffer(c.arg(0), c.arg(1)); }
+void gl_glDeleteRenderbuffers(GuestCall &c) { glDeleteRenderbuffers(c.arg(0), (const GLuint *)c.ptr(c.arg(1))); }
+void gl_glRenderbufferStorage(GuestCall &c) { glRenderbufferStorage(c.arg(0), c.arg(1), c.arg(2), c.arg(3)); }
+void gl_glFramebufferRenderbuffer(GuestCall &c) { glFramebufferRenderbuffer(c.arg(0), c.arg(1), c.arg(2), c.arg(3)); }
+void gl_glIsRenderbuffer(GuestCall &c) { c.regs[0] = glIsRenderbuffer(c.arg(0)); }
+void gl_glGetFramebufferAttachmentParameteriv(GuestCall &c) {
+    glGetFramebufferAttachmentParameteriv(c.arg(0), c.arg(1), c.arg(2), (GLint *)c.ptr(c.arg(3)));
+}
+void gl_glGetRenderbufferParameteriv(GuestCall &c) {
+    glGetRenderbufferParameteriv(c.arg(0), c.arg(1), (GLint *)c.ptr(c.arg(2)));
+}
+void gl_glGenerateMipmap(GuestCall &c) { glGenerateMipmap(c.arg(0)); }
+
 void gl_glGenTextures(GuestCall &c) {
     glGenTextures(c.arg(0), (GLuint *)c.ptr(c.arg(1)));
 }
@@ -1038,6 +1055,17 @@ void gl_glGetShaderiv(GuestCall &c) {
 void gl_glGetString(GuestCall &c) {
     const GLubyte *s = glGetString(c.arg(0));
     const char *cs = s ? (const char *)s : "";
+    /* The game only uses framebuffer objects when the extension string names
+     * GL_OES_framebuffer_object, which a desktop driver never does. The runner
+     * requires FBOs (gl_requirements.c) and serves the OES entry points, so say
+     * so -- otherwise the game draws its offscreen images in software and
+     * re-uploads them every frame. First, because a desktop driver's list is
+     * long enough that the end of it does not survive the game's copy. */
+    std::string extensions;
+    if (c.arg(0) == 0x1F03 /* GL_EXTENSIONS */) {
+        extensions = std::string("GL_OES_framebuffer_object ") + cs;
+        cs = extensions.c_str();
+    }
     uint32_t len = (uint32_t)std::strlen(cs) + 1;
     uint32_t addr = c.rt->heap.alloc(len);
     /* A driver string, not guest memory -- must be copied into the guest's own
@@ -1536,6 +1564,16 @@ void register_libgles(ImportTable &t) {
     t.add("glFrontFace", gl_glFrontFace);
     t.add("glGenFramebuffers", gl_glGenFramebuffers);
     t.add("glGenFramebuffersOES", gl_glGenFramebuffers);
+    t.add("glIsFramebufferOES", gl_glIsFramebuffer);
+    t.add("glGenRenderbuffersOES", gl_glGenRenderbuffers);
+    t.add("glBindRenderbufferOES", gl_glBindRenderbuffer);
+    t.add("glDeleteRenderbuffersOES", gl_glDeleteRenderbuffers);
+    t.add("glRenderbufferStorageOES", gl_glRenderbufferStorage);
+    t.add("glFramebufferRenderbufferOES", gl_glFramebufferRenderbuffer);
+    t.add("glIsRenderbufferOES", gl_glIsRenderbuffer);
+    t.add("glGetFramebufferAttachmentParameterivOES", gl_glGetFramebufferAttachmentParameteriv);
+    t.add("glGetRenderbufferParameterivOES", gl_glGetRenderbufferParameteriv);
+    t.add("glGenerateMipmapOES", gl_glGenerateMipmap);
     t.add("glGenTextures", gl_glGenTextures);
     t.add("glGetError", gl_glGetError);
     t.add("glGetIntegerv", gl_glGetIntegerv);

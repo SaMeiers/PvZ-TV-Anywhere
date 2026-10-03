@@ -351,8 +351,10 @@ void egl_terminate(GuestCall &c) {
     c.set_result(kEglTrue);
 }
 
+/* Hands out the runner's own entry points for the extension functions it
+ * implements (see guest_proc_address); 0 for the rest, as before. */
 void egl_get_proc_address(GuestCall &c) {
-    c.set_result(0);
+    c.set_result(guest_proc_address(c.img, c.cstr(c.arg(0), 128)));
 }
 
 } // namespace

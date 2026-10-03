@@ -951,6 +951,7 @@ int main(int argc, char *argv[]) {
     // Setup Transmension NativeApp / BridgeApp singletons
     setup_transmension_bridge(&image, &rt);
     printf("[+] Host overrides installed: %u\n", pvz_tv::install_guest_overrides(&image));
+    pvz_tv::prepare_proc_addresses(&image);
 
     // Build O(1) import handler cache
     const auto &table = pvz_tv::import_table();

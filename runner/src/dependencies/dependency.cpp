@@ -200,6 +200,30 @@ void register_libc(ImportTable &t) {
     register_libc_misc(t);
 }
 
+/* Every extension entry point the game looks up by name. */
+static const char *const kProcAddressNames[] = {
+    "glGenFramebuffersOES", "glBindFramebufferOES", "glDeleteFramebuffersOES",
+    "glCheckFramebufferStatusOES", "glFramebufferTexture2DOES", "glIsFramebufferOES",
+    "glGenRenderbuffersOES", "glBindRenderbufferOES", "glDeleteRenderbuffersOES",
+    "glRenderbufferStorageOES", "glFramebufferRenderbufferOES", "glIsRenderbufferOES",
+    "glGetFramebufferAttachmentParameterivOES", "glGetRenderbufferParameterivOES",
+    "glGenerateMipmapOES",
+};
+
+void prepare_proc_addresses(pvz2_elf_image_t *img) {
+    for (const char *name : kProcAddressNames) {
+        if (import_table().find(name)) pvz2_elf_add_trampoline(img, name);
+    }
+}
+
+std::uint32_t guest_proc_address(const pvz2_elf_image_t *img, const std::string &name) {
+    if (!import_table().find(name.c_str())) return 0;
+    for (std::uint32_t i = 0; i < img->trampoline_count; ++i) {
+        if (name == img->trampoline_names[i]) return img->trampoline_base + i * PVZ2_TRAMPOLINE_STRIDE;
+    }
+    return 0; /* implemented, but not prepared at startup: no bound handler to reach */
+}
+
 const ImportTable &import_table() {
     static const ImportTable table = [] {
         ImportTable t;

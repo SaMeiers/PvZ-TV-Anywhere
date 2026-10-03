@@ -161,6 +161,21 @@ using ImportHandler = void (*)(GuestCall &);
  * concurrently without a lock. */
 std::uint32_t make_guest_callback(const char *name, ImportHandler fn);
 
+/* eglGetProcAddress for the guest.
+ *
+ * GLES 1.1 reaches GL_OES_framebuffer_object only through eglGetProcAddress,
+ * and the runner used to answer every such query with 0. The game then
+ * logged "Missing some functions for GL_OES_framebuffer_object", turned
+ * framebuffer objects off and fell back to drawing its offscreen images in
+ * software and re-uploading them as textures every frame -- most of the
+ * frame time on a slow phone.
+ *
+ * prepare_proc_addresses() gives each name the runner can serve a trampoline
+ * (call it before the handler table is built); guest_proc_address() then hands
+ * the guest that trampoline's address, or 0 for anything not implemented. */
+void prepare_proc_addresses(pvz2_elf_image_t *img);
+std::uint32_t guest_proc_address(const pvz2_elf_image_t *img, const std::string &name);
+
 /* Name -> handler, populated once at startup by the register_* functions. */
 class ImportTable {
 public:

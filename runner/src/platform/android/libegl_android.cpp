@@ -672,7 +672,11 @@ void egl_query_string(GuestCall &c) {
 void egl_get_current_context(GuestCall &c) { c.set_result(kEglContext); }
 void egl_get_current_display(GuestCall &c) { c.set_result(kEglDisplay); }
 void egl_get_current_surface(GuestCall &c) { c.set_result(kEglSurface); }
-void egl_get_proc_address(GuestCall &c) { c.set_result(0); }
+/* Hands out the runner's own entry points for the extension functions it
+ * implements (see guest_proc_address); 0 for the rest, as before. */
+void egl_get_proc_address(GuestCall &c) {
+    c.set_result(guest_proc_address(c.img, c.cstr(c.arg(0), 128)));
+}
 
 } // namespace
 

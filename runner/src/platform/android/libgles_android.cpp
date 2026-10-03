@@ -20,6 +20,7 @@
 #include <pvz_tv/config.h>
 #include <pvz_tv/surface.h>
 
+#include <EGL/egl.h>
 #include <GLES/gl.h>
 #include <GLES/glext.h>
 #include <GLES2/gl2.h>
@@ -517,6 +518,102 @@ void gl_glGenFramebuffers(GuestCall &c) {
     glGenFramebuffers(c.arg(0), (GLuint *)c.ptr(c.arg(1)));
 }
 
+/* GL_OES_framebuffer_object. The host context is GLES 1.1, where framebuffer
+ * objects exist only as this extension, reached through eglGetProcAddress --
+ * the GLES 2 entry points the *OES names used to share are not valid there. */
+struct OesFbo {
+    PFNGLGENFRAMEBUFFERSOESPROC gen_framebuffers = nullptr;
+    PFNGLBINDFRAMEBUFFEROESPROC bind_framebuffer = nullptr;
+    PFNGLDELETEFRAMEBUFFERSOESPROC delete_framebuffers = nullptr;
+    PFNGLCHECKFRAMEBUFFERSTATUSOESPROC check_framebuffer_status = nullptr;
+    PFNGLFRAMEBUFFERTEXTURE2DOESPROC framebuffer_texture_2d = nullptr;
+    PFNGLISFRAMEBUFFEROESPROC is_framebuffer = nullptr;
+    PFNGLGENRENDERBUFFERSOESPROC gen_renderbuffers = nullptr;
+    PFNGLBINDRENDERBUFFEROESPROC bind_renderbuffer = nullptr;
+    PFNGLDELETERENDERBUFFERSOESPROC delete_renderbuffers = nullptr;
+    PFNGLRENDERBUFFERSTORAGEOESPROC renderbuffer_storage = nullptr;
+    PFNGLFRAMEBUFFERRENDERBUFFEROESPROC framebuffer_renderbuffer = nullptr;
+    PFNGLISRENDERBUFFEROESPROC is_renderbuffer = nullptr;
+    PFNGLGETFRAMEBUFFERATTACHMENTPARAMETERIVOESPROC get_attachment_parameteriv = nullptr;
+    PFNGLGETRENDERBUFFERPARAMETERIVOESPROC get_renderbuffer_parameteriv = nullptr;
+    PFNGLGENERATEMIPMAPOESPROC generate_mipmap = nullptr;
+};
+
+const OesFbo &oes_fbo() {
+    static const OesFbo f = [] {
+        OesFbo r;
+#define LOAD(field, name) r.field = reinterpret_cast<decltype(r.field)>(eglGetProcAddress(name))
+        LOAD(gen_framebuffers, "glGenFramebuffersOES");
+        LOAD(bind_framebuffer, "glBindFramebufferOES");
+        LOAD(delete_framebuffers, "glDeleteFramebuffersOES");
+        LOAD(check_framebuffer_status, "glCheckFramebufferStatusOES");
+        LOAD(framebuffer_texture_2d, "glFramebufferTexture2DOES");
+        LOAD(is_framebuffer, "glIsFramebufferOES");
+        LOAD(gen_renderbuffers, "glGenRenderbuffersOES");
+        LOAD(bind_renderbuffer, "glBindRenderbufferOES");
+        LOAD(delete_renderbuffers, "glDeleteRenderbuffersOES");
+        LOAD(renderbuffer_storage, "glRenderbufferStorageOES");
+        LOAD(framebuffer_renderbuffer, "glFramebufferRenderbufferOES");
+        LOAD(is_renderbuffer, "glIsRenderbufferOES");
+        LOAD(get_attachment_parameteriv, "glGetFramebufferAttachmentParameterivOES");
+        LOAD(get_renderbuffer_parameteriv, "glGetRenderbufferParameterivOES");
+        LOAD(generate_mipmap, "glGenerateMipmapOES");
+#undef LOAD
+        return r;
+    }();
+    return f;
+}
+
+void oes_glGenFramebuffers(GuestCall &c) {
+    if (auto f = oes_fbo().gen_framebuffers) f(c.arg(0), (GLuint *)c.ptr(c.arg(1)));
+}
+void oes_glBindFramebuffer(GuestCall &c) {
+    g_bound_fbo.store((GLuint)c.arg(1), std::memory_order_relaxed);
+    if (auto f = oes_fbo().bind_framebuffer) f(c.arg(0), c.arg(1));
+}
+void oes_glDeleteFramebuffers(GuestCall &c) {
+    if (auto f = oes_fbo().delete_framebuffers) f(c.arg(0), (const GLuint *)c.ptr(c.arg(1)));
+}
+void oes_glCheckFramebufferStatus(GuestCall &c) {
+    auto f = oes_fbo().check_framebuffer_status;
+    c.regs[0] = f ? f(c.arg(0)) : 0;
+}
+void oes_glFramebufferTexture2D(GuestCall &c) {
+    if (auto f = oes_fbo().framebuffer_texture_2d) f(c.arg(0), c.arg(1), c.arg(2), c.arg(3), c.arg(4));
+}
+void oes_glIsFramebuffer(GuestCall &c) {
+    auto f = oes_fbo().is_framebuffer;
+    c.regs[0] = f ? f(c.arg(0)) : 0;
+}
+void oes_glGenRenderbuffers(GuestCall &c) {
+    if (auto f = oes_fbo().gen_renderbuffers) f(c.arg(0), (GLuint *)c.ptr(c.arg(1)));
+}
+void oes_glBindRenderbuffer(GuestCall &c) {
+    if (auto f = oes_fbo().bind_renderbuffer) f(c.arg(0), c.arg(1));
+}
+void oes_glDeleteRenderbuffers(GuestCall &c) {
+    if (auto f = oes_fbo().delete_renderbuffers) f(c.arg(0), (const GLuint *)c.ptr(c.arg(1)));
+}
+void oes_glRenderbufferStorage(GuestCall &c) {
+    if (auto f = oes_fbo().renderbuffer_storage) f(c.arg(0), c.arg(1), c.arg(2), c.arg(3));
+}
+void oes_glFramebufferRenderbuffer(GuestCall &c) {
+    if (auto f = oes_fbo().framebuffer_renderbuffer) f(c.arg(0), c.arg(1), c.arg(2), c.arg(3));
+}
+void oes_glIsRenderbuffer(GuestCall &c) {
+    auto f = oes_fbo().is_renderbuffer;
+    c.regs[0] = f ? f(c.arg(0)) : 0;
+}
+void oes_glGetFramebufferAttachmentParameteriv(GuestCall &c) {
+    if (auto f = oes_fbo().get_attachment_parameteriv) f(c.arg(0), c.arg(1), c.arg(2), (GLint *)c.ptr(c.arg(3)));
+}
+void oes_glGetRenderbufferParameteriv(GuestCall &c) {
+    if (auto f = oes_fbo().get_renderbuffer_parameteriv) f(c.arg(0), c.arg(1), (GLint *)c.ptr(c.arg(2)));
+}
+void oes_glGenerateMipmap(GuestCall &c) {
+    if (auto f = oes_fbo().generate_mipmap) f(c.arg(0));
+}
+
 void gl_glGenTextures(GuestCall &c) {
     glGenTextures(c.arg(0), (GLuint *)c.ptr(c.arg(1)));
 }
@@ -969,11 +1066,11 @@ void register_libgles(ImportTable &t) {
     t.add("glAttachShader", gl_glAttachShader);
     t.add("glBindAttribLocation", gl_glBindAttribLocation);
     t.add("glBindFramebuffer", gl_glBindFramebuffer);
-    t.add("glBindFramebufferOES", gl_glBindFramebuffer);
+    t.add("glBindFramebufferOES", oes_glBindFramebuffer);
     t.add("glBindTexture", gl_glBindTexture);
     t.add("glBlendFunc", gl_glBlendFunc);
     t.add("glCheckFramebufferStatus", gl_glCheckFramebufferStatus);
-    t.add("glCheckFramebufferStatusOES", gl_glCheckFramebufferStatus);
+    t.add("glCheckFramebufferStatusOES", oes_glCheckFramebufferStatus);
     t.add("glClear", gl_glClear);
     t.add("glClearColor", gl_glClearColor);
     t.add("glClearDepthf", gl_glClearDepthf);
@@ -987,7 +1084,7 @@ void register_libgles(ImportTable &t) {
     t.add("glCreateShader", gl_glCreateShader);
     t.add("glCullFace", gl_glCullFace);
     t.add("glDeleteFramebuffers", gl_glDeleteFramebuffers);
-    t.add("glDeleteFramebuffersOES", gl_glDeleteFramebuffers);
+    t.add("glDeleteFramebuffersOES", oes_glDeleteFramebuffers);
     t.add("glDeleteProgram", gl_glDeleteProgram);
     t.add("glDeleteShader", gl_glDeleteShader);
     t.add("glDeleteTextures", gl_glDeleteTextures);
@@ -1001,10 +1098,20 @@ void register_libgles(ImportTable &t) {
     t.add("glEnableClientState", gl_glEnableClientState);
     t.add("glEnableVertexAttribArray", gl_glEnableVertexAttribArray);
     t.add("glFramebufferTexture2D", gl_glFramebufferTexture2D);
-    t.add("glFramebufferTexture2DOES", gl_glFramebufferTexture2D);
+    t.add("glFramebufferTexture2DOES", oes_glFramebufferTexture2D);
     t.add("glFrontFace", gl_glFrontFace);
     t.add("glGenFramebuffers", gl_glGenFramebuffers);
-    t.add("glGenFramebuffersOES", gl_glGenFramebuffers);
+    t.add("glGenFramebuffersOES", oes_glGenFramebuffers);
+    t.add("glIsFramebufferOES", oes_glIsFramebuffer);
+    t.add("glGenRenderbuffersOES", oes_glGenRenderbuffers);
+    t.add("glBindRenderbufferOES", oes_glBindRenderbuffer);
+    t.add("glDeleteRenderbuffersOES", oes_glDeleteRenderbuffers);
+    t.add("glRenderbufferStorageOES", oes_glRenderbufferStorage);
+    t.add("glFramebufferRenderbufferOES", oes_glFramebufferRenderbuffer);
+    t.add("glIsRenderbufferOES", oes_glIsRenderbuffer);
+    t.add("glGetFramebufferAttachmentParameterivOES", oes_glGetFramebufferAttachmentParameteriv);
+    t.add("glGetRenderbufferParameterivOES", oes_glGetRenderbufferParameteriv);
+    t.add("glGenerateMipmapOES", oes_glGenerateMipmap);
     t.add("glGenTextures", gl_glGenTextures);
     t.add("glGetError", gl_glGetError);
     t.add("glGetIntegerv", gl_glGetIntegerv);
