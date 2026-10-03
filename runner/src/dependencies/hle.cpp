@@ -12,6 +12,7 @@ const GuestOverrides &overrides() {
         GuestOverrides list;
         register_hle_vorbis(list);
         register_hle_image(list);
+        register_hle_reanim(list);
         return list;
     }();
     return o;

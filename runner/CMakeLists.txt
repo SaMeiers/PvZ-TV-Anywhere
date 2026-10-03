@@ -45,6 +45,7 @@ add_library(pvztv_runner ${PVZTV_RUNNER_KIND}
     src/dependencies/hle.cpp
     src/dependencies/hle_vorbis.cpp
     src/dependencies/hle_image.cpp
+    src/dependencies/hle_reanim.cpp
 )
 
 # The diagnostic build traces every call the guest makes into the host; the

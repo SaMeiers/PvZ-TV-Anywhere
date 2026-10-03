@@ -43,5 +43,6 @@ unsigned install_guest_overrides(pvz2_elf_image_t *img);
 
 void register_hle_vorbis(GuestOverrides &o);
 void register_hle_image(GuestOverrides &o);
+void register_hle_reanim(GuestOverrides &o);
 
 }  // namespace pvz_tv
