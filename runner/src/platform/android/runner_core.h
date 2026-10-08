@@ -32,6 +32,10 @@ void android_runner_hide_text_dialog();
 // Activity lifecycle: park the guest frame loop and silence audio in the background.
 RUNNER_API void android_runner_set_paused(bool paused);
 void android_runner_set_audio_paused(bool paused);
+// Intro video bridge: the mod's AGVideo* functions call pvztv_host_video(op,
+// path), which lands here and calls EnhanceActivity's video methods. op is the
+// mod's HostVideoOp (IntroVideo.cpp); returns the Java method's result.
+bool android_runner_video(int op, const std::string &path);
 // The guest's main() returned (the player quit): close the app.
 void android_runner_finish_activity();
 

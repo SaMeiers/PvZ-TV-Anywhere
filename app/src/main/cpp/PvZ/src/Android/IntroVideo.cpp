@@ -25,7 +25,28 @@
 
 #include <atomic>
 
+// The arm64 runner gives the game a JNIEnv whose every function returns 0, so
+// the JNI calls below reach no Java at all there. It defines this function
+// instead, as a host import that calls the same EnhanceActivity methods; on a
+// 32-bit device nothing defines it and the weak reference stays null.
+// Returns the Java method's result as 1/0 (videoShow always gives 1).
+extern "C" __attribute__((weak, visibility("default"))) int pvztv_host_video(int op, const char *path);
+
 namespace {
+
+enum HostVideoOp {
+    kHostVideoOpen = 0,
+    kHostVideoPlay = 1,
+    kHostVideoStop = 2,
+    kHostVideoClose = 3,
+    kHostVideoIsPlaying = 4,
+    kHostVideoShow = 5,
+    kHostVideoHide = 6,
+};
+
+bool HasHostVideo() {
+    return pvztv_host_video != nullptr;
+}
 
 std::atomic_bool gVideoCompleted{false};
 
@@ -125,6 +146,10 @@ int AGVideoOpen(const char *videoPath) {
 
     LOG_DEBUG("AGVideoOpen: {}", videoPath);
 
+    if (HasHostVideo()) {
+        return pvztv_host_video(kHostVideoOpen, videoPath) != 0 ? 0 : -1;
+    }
+
     ActivityJniContext context;
     jmethodID method = context.GetMethod("videoOpen", "(Ljava/lang/String;)Z");
     if (method == nullptr) {
@@ -151,11 +176,18 @@ int AGVideoOpen(const char *videoPath) {
 }
 
 bool AGVideoIsPlaying() {
+    if (HasHostVideo()) {
+        return pvztv_host_video(kHostVideoIsPlaying, nullptr) != 0;
+    }
     return CallBooleanMethod("videoIsPlaying");
 }
 
 bool AGVideoShow(bool show) {
     LOG_DEBUG("AGVideoShow: {}", show);
+
+    if (HasHostVideo()) {
+        return pvztv_host_video(show ? kHostVideoShow : kHostVideoHide, nullptr) != 0;
+    }
 
     ActivityJniContext context;
     jmethodID method = context.GetMethod("videoShow", "(Z)V");
@@ -170,16 +202,25 @@ bool AGVideoShow(bool show) {
 
 bool AGVideoPlay() {
     LOG_DEBUG("AGVideoPlay");
+    if (HasHostVideo()) {
+        return pvztv_host_video(kHostVideoPlay, nullptr) != 0;
+    }
     return CallBooleanMethod("videoPlay");
 }
 
 bool AGVideoStop() {
     LOG_DEBUG("AGVideoStop");
+    if (HasHostVideo()) {
+        return pvztv_host_video(kHostVideoStop, nullptr) != 0;
+    }
     return CallBooleanMethod("videoStop");
 }
 
 bool AGVideoClose() {
     LOG_DEBUG("AGVideoClose");
+    if (HasHostVideo()) {
+        return pvztv_host_video(kHostVideoClose, nullptr) != 0;
+    }
     return CallBooleanMethod("videoClose");
 }
 

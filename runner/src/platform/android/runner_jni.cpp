@@ -68,6 +68,41 @@ void android_runner_hide_text_dialog() {
     });
 }
 
+bool android_runner_video(int op, const std::string &path) {
+    // EnhanceActivity's video methods, in the order of the mod's HostVideoOp
+    // (IntroVideo.cpp). show/hide are the one void method, videoShow(Z)V.
+    static const char *const kMethods[] = {"videoOpen", "videoPlay", "videoStop", "videoClose",
+                                           "videoIsPlaying", "videoShow", "videoShow"};
+    if (op < 0 || op >= (int)(sizeof(kMethods) / sizeof(kMethods[0]))) return false;
+    bool result = false;
+    with_jni_env([&](JNIEnv *env) {
+        jclass viewCls = env->GetObjectClass(g_view);
+        jmethodID getContext = env->GetMethodID(viewCls, "getContext", "()Landroid/content/Context;");
+        jobject activity = getContext ? env->CallObjectMethod(g_view, getContext) : nullptr;
+        env->DeleteLocalRef(viewCls);
+        if (!activity) return;
+        jclass cls = env->GetObjectClass(activity);
+        const bool isShow = op >= 5;
+        const char *sig = op == 0 ? "(Ljava/lang/String;)Z" : isShow ? "(Z)V" : "()Z";
+        jmethodID mid = env->GetMethodID(cls, kMethods[op], sig);
+        if (!mid) {
+            LOGE("Video bridge: %s%s not found on the activity", kMethods[op], sig);
+        } else if (op == 0) {
+            jstring jPath = env->NewStringUTF(path.c_str());
+            result = env->CallBooleanMethod(activity, mid, jPath) == JNI_TRUE;
+            env->DeleteLocalRef(jPath);
+        } else if (isShow) {
+            env->CallVoidMethod(activity, mid, (jboolean)(op == 5));
+            result = true;
+        } else {
+            result = env->CallBooleanMethod(activity, mid) == JNI_TRUE;
+        }
+        env->DeleteLocalRef(cls);
+        env->DeleteLocalRef(activity);
+    });
+    return result;
+}
+
 void android_runner_finish_activity() {
     LOGI("Guest main() returned: finishing the activity");
     with_jni_env([&](JNIEnv *env) {

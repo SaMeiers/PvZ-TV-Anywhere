@@ -678,6 +678,17 @@ void egl_get_proc_address(GuestCall &c) {
     c.set_result(guest_proc_address(c.img, c.cstr(c.arg(0), 128)));
 }
 
+/* int pvztv_host_video(int op, const char *path) -- the mod's weak import for
+ * the intro video (IntroVideo.cpp). Its JNI calls reach nothing under the
+ * runner, so it asks for this instead; path is only read for op 0 (open). */
+void host_video(GuestCall &c) {
+    const int op = (int)c.arg(0);
+    const std::string path = (op == 0 && c.arg(1)) ? c.cstr(c.arg(1), 1024) : std::string();
+    const bool ok = android_runner_video(op, path);
+    LOGI("Guest video op %d%s%s -> %d", op, path.empty() ? "" : " ", path.c_str(), ok ? 1 : 0);
+    c.set_result(ok ? 1 : 0);
+}
+
 } // namespace
 
 void register_libegl(ImportTable &t) {
@@ -702,6 +713,7 @@ void register_libegl(ImportTable &t) {
     t.add("eglGetCurrentDisplay", egl_get_current_display);
     t.add("eglGetCurrentSurface", egl_get_current_surface);
     t.add("eglGetProcAddress", egl_get_proc_address);
+    t.add("pvztv_host_video", host_video);
 }
 
 } // namespace pvz_tv
