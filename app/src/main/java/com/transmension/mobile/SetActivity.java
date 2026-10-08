@@ -54,6 +54,7 @@ import android.text.InputFilter;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.text.TextWatcher;
+import android.util.Log;
 import android.util.Pair;
 import android.util.TypedValue;
 import android.util.Xml;
@@ -95,10 +96,15 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
@@ -1645,58 +1651,196 @@ public class SetActivity extends Activity {
         return getAssets().open("paks/" + pakItem.prefKey);
     }
 
-    private boolean loadPak(PakItem pakItem) {
-        try (InputStream inputStream = openPakStream(pakItem);
-             ZipInputStream zipInputStream = new ZipInputStream(inputStream)) {
-            File pakFileDestDir = getUserDataFile(this);
-            if (!pakFileDestDir.exists()) {
-                pakFileDestDir.mkdir();
+    /**
+     * Carpetas de primer nivel del arbol del juego (assets/files del APK).
+     * Un pak hecho a mano suele traerlas dentro de una carpeta con su nombre,
+     * o dentro de files/ o assets/files/; lo que este por encima de la primera
+     * de estas carpetas no forma parte de la ruta que pide el juego.
+     */
+    private static final Set<String> GAME_TOP_DIRS = new HashSet<>(Arrays.asList(
+            "addonfiles", "compiled", "data", "images", "menu", "movies", "music",
+            "particles", "properties", "reanim", "sounds"));
+
+    /** La descripcion del pak: se muestra en la lista, no se copia al juego. */
+    private static boolean isPakMetadata(String relativePath) {
+        return "readme.txt".equalsIgnoreCase(relativePath)
+                || "info.png".equalsIgnoreCase(relativePath)
+                || "info.jpg".equalsIgnoreCase(relativePath);
+    }
+
+    /** Como leer un pak: la codificacion de sus nombres y la carpeta que hace de raiz. */
+    private static class PakLayout {
+        Charset charset = StandardCharsets.UTF_8;
+        String root = "";
+        int fileCount;
+    }
+
+    private interface PakFileVisitor {
+        void visit(String relativePath, ZipInputStream zip) throws IOException;
+    }
+
+    /**
+     * Separadores de Windows a '/', sin '/' inicial ni componentes vacios.
+     * null si la entrada intenta salir de la carpeta de destino con "..".
+     */
+    private static String normalizePakPath(String entryName) {
+        StringBuilder result = new StringBuilder();
+        for (String part : entryName.replace('\\', '/').split("/")) {
+            if (part.isEmpty() || ".".equals(part)) {
+                continue;
             }
-            ZipEntry zipEntry = zipInputStream.getNextEntry();
-            while (zipEntry != null) {
-                String entryName = zipEntry.getName();
-                if (zipEntry.isDirectory()) {
-                    new File(pakFileDestDir, entryName).mkdirs();
-                } else {
-                    File target = new File(pakFileDestDir, entryName);
-                    File parent = target.getParentFile();
-                    if (parent != null && !parent.exists()) {
-                        parent.mkdirs();
-                    }
-                    byte[] buffer = new byte[1024];
-                    int count;
-                    try (FileOutputStream fos = new FileOutputStream(target);
-                         BufferedOutputStream bos = new BufferedOutputStream(fos, buffer.length)) {
-                        while ((count = zipInputStream.read(buffer, 0, buffer.length)) != -1) {
-                            bos.write(buffer, 0, count);
-                        }
-                        bos.flush();
+            if ("..".equals(part)) {
+                return null;
+            }
+            if (result.length() != 0) {
+                result.append('/');
+            }
+            result.append(part);
+        }
+        return result.length() == 0 ? null : result.toString();
+    }
+
+    private ZipInputStream openPakZip(PakItem pakItem, Charset charset) throws IOException {
+        InputStream inputStream = openPakStream(pakItem);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            return new ZipInputStream(inputStream, charset);
+        }
+        return new ZipInputStream(inputStream);
+    }
+
+    private List<String> listPakFiles(PakItem pakItem, Charset charset) throws IOException {
+        List<String> files = new ArrayList<>();
+        try (ZipInputStream zip = openPakZip(pakItem, charset)) {
+            for (ZipEntry entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
+                String path = entry.isDirectory() ? null : normalizePakPath(entry.getName());
+                if (path != null) {
+                    files.add(path);
+                }
+                zip.closeEntry();
+            }
+        }
+        return files;
+    }
+
+    private PakLayout readPakLayout(PakItem pakItem) throws IOException {
+        PakLayout layout = new PakLayout();
+        List<String> files;
+        try {
+            files = listPakFiles(pakItem, layout.charset);
+        } catch (IllegalArgumentException malformedName) {
+            // Un zip creado en un Windows chino guarda los nombres en GBK, y
+            // ZipInputStream los rechaza como UTF-8 a mitad de lectura.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+                throw new IOException(malformedName);
+            }
+            layout.charset = Charset.forName("GBK");
+            try {
+                files = listPakFiles(pakItem, layout.charset);
+            } catch (IllegalArgumentException stillMalformed) {
+                throw new IOException(stillMalformed);
+            }
+        }
+
+        // Los readme/info no cuentan para buscar la raiz: suelen ir sueltos
+        // junto a la carpeta que lleva el contenido.
+        List<String> content = new ArrayList<>();
+        for (String path : files) {
+            String name = path.substring(path.lastIndexOf('/') + 1);
+            if (!isPakMetadata(name)) {
+                content.add(path);
+            }
+        }
+
+        // Baja mientras todo el contenido cuelgue de una misma carpeta que no
+        // sea del juego: "MiPak/images/..." o "assets/files/images/...".
+        while (!content.isEmpty()) {
+            String common = null;
+            for (String path : content) {
+                int slash = path.indexOf('/', layout.root.length());
+                String dir = slash < 0 ? null : path.substring(layout.root.length(), slash);
+                if (dir == null || (common != null && !common.equals(dir))) {
+                    common = null;
+                    break;
+                }
+                common = dir;
+            }
+            if (common == null || GAME_TOP_DIRS.contains(common.toLowerCase(Locale.US))) {
+                break;
+            }
+            layout.root += common + "/";
+        }
+        layout.fileCount = content.size();
+        return layout;
+    }
+
+    /** Recorre los archivos que el pak aporta al juego, con su ruta dentro del arbol del juego. */
+    private void forEachPakFile(PakItem pakItem, PakLayout layout, PakFileVisitor visitor) throws IOException {
+        try (ZipInputStream zip = openPakZip(pakItem, layout.charset)) {
+            for (ZipEntry entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
+                String path = entry.isDirectory() ? null : normalizePakPath(entry.getName());
+                if (path != null && path.startsWith(layout.root)) {
+                    String relativePath = path.substring(layout.root.length());
+                    if (!isPakMetadata(relativePath)) {
+                        visitor.visit(relativePath, zip);
                     }
                 }
-                zipInputStream.closeEntry();
-                zipEntry = zipInputStream.getNextEntry();
+                zip.closeEntry();
             }
+        } catch (IllegalArgumentException malformedName) {
+            throw new IOException(malformedName);
+        }
+    }
+
+    /**
+     * El pak se extrae en la raiz de la carpeta de datos, en 32 y en 64 bits.
+     * En 32 bits es la carpeta de archivos del juego; en 64 bits el VFS del
+     * runner indexa esa raiz por encima de assets/ al arrancar. No sirve
+     * data/ (la carpeta de archivos del juego en 64 bits): ahi el juego solo
+     * busca lo que escribe el mismo, no sus recursos.
+     */
+    private boolean loadPak(PakItem pakItem) {
+        try {
+            PakLayout layout = readPakLayout(pakItem);
+            if (layout.fileCount == 0) {
+                return false;
+            }
+            File pakFileDestDir = getUserDataFile(this);
+            if (!pakFileDestDir.exists()) {
+                pakFileDestDir.mkdirs();
+            }
+            byte[] buffer = new byte[64 * 1024];
+            forEachPakFile(pakItem, layout, (relativePath, zip) -> {
+                File target = new File(pakFileDestDir, relativePath);
+                File parent = target.getParentFile();
+                if (parent != null && !parent.exists()) {
+                    parent.mkdirs();
+                }
+                try (FileOutputStream fos = new FileOutputStream(target);
+                     BufferedOutputStream bos = new BufferedOutputStream(fos, buffer.length)) {
+                    int count;
+                    while ((count = zip.read(buffer, 0, buffer.length)) != -1) {
+                        bos.write(buffer, 0, count);
+                    }
+                    bos.flush();
+                }
+            });
             return true;
         } catch (IOException e) {
+            Log.e("SetActivity", "Unable to load pak " + pakItem.displayName, e);
             return false;
         }
     }
 
     private boolean unloadPak(PakItem pakItem) {
-        try (InputStream inputStream = openPakStream(pakItem);
-             ZipInputStream zipInputStream = new ZipInputStream(inputStream)) {
+        try {
+            PakLayout layout = readPakLayout(pakItem);
             File pakFileDestDir = getUserDataFile(this);
-            ZipEntry zipEntry = zipInputStream.getNextEntry();
-            while (zipEntry != null) {
-                if (!zipEntry.isDirectory()) {
-                    File file = new File(pakFileDestDir, zipEntry.getName());
-                    if (file.exists()) {
-                        file.delete();
-                    }
+            forEachPakFile(pakItem, layout, (relativePath, zip) -> {
+                File file = new File(pakFileDestDir, relativePath);
+                if (file.exists()) {
+                    file.delete();
                 }
-                zipInputStream.closeEntry();
-                zipEntry = zipInputStream.getNextEntry();
-            }
+            });
             return true;
         } catch (IOException e) {
             return false;
@@ -1705,12 +1849,22 @@ public class SetActivity extends Activity {
 
     private PakInfo readPakInfo(PakItem pakItem) {
         PakInfo info = new PakInfo();
-        try (InputStream inputStream = openPakStream(pakItem);
-             ZipInputStream zipInputStream = new ZipInputStream(inputStream)) {
+        PakLayout layout;
+        try {
+            layout = readPakLayout(pakItem);
+        } catch (IOException e) {
+            return info;
+        }
+        try (ZipInputStream zipInputStream = openPakZip(pakItem, layout.charset)) {
             ZipEntry zipEntry = zipInputStream.getNextEntry();
             while (zipEntry != null) {
-                String entryName = zipEntry.getName();
-                if (!zipEntry.isDirectory() && !entryName.contains("/")) {
+                String path = zipEntry.isDirectory() ? null : normalizePakPath(zipEntry.getName());
+                // Junto al contenido o en la raiz del zip.
+                String entryName = path == null ? null
+                        : path.startsWith(layout.root) && path.indexOf('/', layout.root.length()) < 0
+                        ? path.substring(layout.root.length())
+                        : path.contains("/") ? null : path;
+                if (entryName != null) {
                     if ("readme.txt".equalsIgnoreCase(entryName)) {
                         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
                         byte[] buffer = new byte[1024];
@@ -1811,18 +1965,30 @@ public class SetActivity extends Activity {
         try (InputStream inputStream = getContentResolver().openInputStream(uri);
              FileOutputStream fos = new FileOutputStream(dest)) {
             if (inputStream == null) {
+                dest.delete();
                 return false;
             }
-            byte[] buffer = new byte[1024];
+            byte[] buffer = new byte[64 * 1024];
             int read;
             while ((read = inputStream.read(buffer)) != -1) {
                 fos.write(buffer, 0, read);
             }
             fos.flush();
-            return true;
         } catch (IOException e) {
+            dest.delete();
             return false;
         }
+
+        // Guardar el zip no basta: el juego solo ve los archivos sueltos, asi
+        // que el pak se extrae ya y queda activado en la lista. Un zip sin
+        // nada que el juego pueda usar no se queda en la lista.
+        PakItem pakItem = PakItem.external(dest);
+        if (!loadPak(pakItem)) {
+            dest.delete();
+            return false;
+        }
+        dataSharedPreferences.edit().putBoolean(pakItem.prefKey, true).apply();
+        return true;
     }
 
     private String getDisplayNameFromUri(Uri uri) {

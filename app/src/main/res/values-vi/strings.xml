@@ -131,7 +131,7 @@
     <string name="addon_appearance_toast5">Không có Hướng dẫn cho Pak này</string>
     <string name="addon_appearance_noinfo">Không có thông tin</string>
     <string name="addon_appearance_importpak">Nhập Pak Ngoài</string>
-    <string name="addon_appearance_importpak_toast1">Đã nhập Pak ngoài</string>
+    <string name="addon_appearance_importpak_toast1">Đã nhập và tải Pak ngoài</string>
     <string name="addon_appearance_importpak_toast2">Nhập Pak ngoài thất bại</string>
     <string name="addon_appearance_uninstallpak">Gỡ cài đặt Pak</string>
     <string name="addon_appearance_uninstallpak_toast1">Đã gỡ cài đặt Pak ngoài</string>

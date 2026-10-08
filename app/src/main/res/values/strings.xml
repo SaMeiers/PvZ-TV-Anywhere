@@ -131,7 +131,7 @@
     <string name="addon_appearance_toast5">No Instructions for This Pak</string>
     <string name="addon_appearance_noinfo">No information</string>
     <string name="addon_appearance_importpak">Import External Pak</string>
-    <string name="addon_appearance_importpak_toast1">External Pak imported</string>
+    <string name="addon_appearance_importpak_toast1">External Pak imported and loaded</string>
     <string name="addon_appearance_importpak_toast2">Failed to import external Pak</string>
     <string name="addon_appearance_uninstallpak">Uninstall Pak</string>
     <string name="addon_appearance_uninstallpak_toast1">External Pak uninstalled</string>
