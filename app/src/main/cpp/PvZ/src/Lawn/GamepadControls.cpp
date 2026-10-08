@@ -28,6 +28,7 @@
 #include "PvZ/Lawn/Board/ZenGarden.h"
 #include "PvZ/Lawn/Board/Zombie.h"
 #include "PvZ/Lawn/LawnApp.h"
+#include "PvZ/Lawn/System/SaveGame.h"
 #include "PvZ/Lawn/Widget/VSSetupAddonWidget.h"
 #include "PvZ/NetPlay.h"
 #include "PvZ/SexyAppFramework/Graphics/Graphics.h"
@@ -43,7 +44,7 @@ using namespace Sexy;
 
 namespace {
 bool WidgetManagerIsEscDown(Sexy::WidgetManager *widgetManager) {
-    // Mirror original std::map<int,bool> key lookup for VK_ESCAPE (27).
+    // 按原版方式在 std::map<int, bool> 中查找 VK_ESCAPE（27）的按键状态。
     int *manager = reinterpret_cast<int *>(widgetManager);
     int *node = reinterpret_cast<int *>(manager[68]);
     int *candidate = manager + 67;
@@ -405,7 +406,7 @@ void GamepadControls::_constructor(Board *theBoard, int thePlayerIndex1, int the
         return;
 
     GameMode aGameMode = mApp->mGameMode;
-    bool isTwoSeedBankMode = (aGameMode == GameMode::GAMEMODE_MP_VS || (aGameMode >= GameMode::GAMEMODE_TWO_PLAYER_COOP_DAY && aGameMode <= GameMode::GAMEMODE_TWO_PLAYER_COOP_ENDLESS));
+    bool isTwoSeedBankMode = (aGameMode == GameMode::GAMEMODE_MP_VS || mApp->IsCoopMode());
     if (!gKeyboardMode && !isTwoSeedBankMode && aGameMode != GameMode::GAMEMODE_CHALLENGE_SLOT_MACHINE) {
         mIsInShopSeedBank = true; // 是否在Shop栏。
     }
@@ -431,6 +432,7 @@ void GamepadControls::pickUpCobCannon(Plant *cobCannon) {
             mCobCannonPlantIndexInList = static_cast<int>(mBoard->mPlants.DataArrayGetID(cobCannon));
             mCobCannonAnimCounter = 0;
             mIsCobCannonSelected = true;
+            mBoard->SyncCobCannonSelection(mPlayerIndex);
         }
     }
 }
@@ -600,6 +602,8 @@ void GamepadControls::Update(float a2) {
     if (!isKeyboardTwoPlayerMode && !anApp->CanShopLevel() && mGamepadState == MOVEMENT_STATE_SELECT_SEED && mIsInShopSeedBank) {
         mIsInShopSeedBank = false;
     }
+    // 同时同步原版手柄逻辑中选取、取消、发射及植物删除引起的选取变化。
+    mBoard->SyncCobCannonSelection(mPlayerIndex);
 }
 
 void GamepadControls::ButtonDownFireCobcannonTest() {
@@ -1169,6 +1173,17 @@ void GamepadControls::DrawPreview(Sexy::Graphics *g) {
 }
 
 void GamepadControls::OnButtonDown(Sexy::GamepadButton theButton, int thePlayerIndex, unsigned int unk) {
+    if (netplay::IsSynchronizingSaveGame()) {
+        return;
+    }
+
+    if (mApp->mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS_HARD && theButton == Sexy::GamepadButton::GAMEPAD_BUTTON_X) {
+        // 原版手柄直接 ApplyButter，困难僵王统一走各自的手套冷却入口。
+        if (mBoard->mShowButter) {
+            mBoard->ApplyButterFromGlove(mBoard->ZombieHitTest(mCursorPositionX, mCursorPositionY, 1), mPlayerIndex);
+        }
+        return;
+    }
 
     if (!mApp->IsVSMode() || theButton != Sexy::GamepadButton::GAMEPAD_BUTTON_A) {
         return old_GamepadControls_OnButtonDown(this, theButton, thePlayerIndex, unk);

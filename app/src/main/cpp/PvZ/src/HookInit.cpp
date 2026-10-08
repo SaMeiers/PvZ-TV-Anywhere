@@ -75,6 +75,10 @@ void InitHookFunction() {
     homura::HookFunc(LawnApp__destructorAddr, &LawnApp::_destructor, &old_LawnApp__destructor);
     homura::HookFunc(LawnApp_InitAddr, &LawnApp::Init, &old_LawnApp_Init);
     homura::HookFunc(LawnApp_IsNightAddr, &LawnApp::IsNight, &old_LawnApp_IsNight);
+    homura::HookFunc(LawnApp_IsCoopModeAddr, &LawnApp::IsCoopMode, nullptr);
+    // IsTwinSunbankMode 仅有 4 字节，直接跳转到 IsCoopMode；Hook 它会覆盖紧邻的 IsPuzzleMode。
+    homura::HookFunc(LawnApp_IsFinalBossLevelAddr, &LawnApp::IsFinalBossLevel, nullptr);
+    homura::HookFunc(LawnApp_GetCurrentChallengeDefAddr, &LawnApp::GetCurrentChallengeDef, nullptr);
     homura::HookFunc(LawnApp_HardwareInitAddr, &LawnApp::HardwareInit, &old_LawnApp_HardwareInit);
     homura::HookFunc(LawnApp_DoBackToMainAddr, &LawnApp::DoBackToMain, &old_LawnApp_DoBackToMain);
     homura::HookFunc(LawnApp_DoSettingsDialogAddr, &LawnApp::DoSettingsDialog, nullptr);
@@ -121,6 +125,7 @@ void InitHookFunction() {
     homura::HookFunc(Board_BoardAddr, &Board::_constructor, nullptr);
     homura::HookFunc(Board__destructorAddr, &Board::_destructor, nullptr);
     homura::HookFunc(Board_InitLevelAddr, &Board::InitLevel, &old_Board_InitLevel);
+    homura::HookFunc(Board_InitSurvivalStageAddr, &Board::InitSurvivalStage, &old_Board_InitSurvivalStage);
     homura::HookFunc(Board_StartLevelAddr, &Board::StartLevel, &old_Board_StartLevel);
     homura::HookFunc(Board_RemovedFromManagerAddr, &Board::RemovedFromManager, &old_Board_RemovedFromManager);
     homura::HookFunc(Board_FadeOutLevelAddr, &Board::FadeOutLevel, &old_Board_FadeOutLevel);
@@ -143,6 +148,7 @@ void InitHookFunction() {
     homura::HookFunc(Board_UpdateGameObjectsAddr, &Board::UpdateGameObjects, &old_Board_UpdateGameObjects);
     homura::HookFunc(Board_IsFlagWaveAddr, &Board::IsFlagWave, &old_Board_IsFlagWave);
     homura::HookFunc(Board_SpawnZombieWaveAddr, &Board::SpawnZombieWave, &old_Board_SpawnZombieWave);
+    homura::HookFunc(Board_UpdateProgressMeterAddr, &Board::UpdateProgressMeter, &old_Board_UpdateProgressMeter);
     homura::HookFunc(Board_DrawProgressMeterAddr, &Board::DrawProgressMeter, &old_Board_DrawProgressMeter);
     homura::HookFunc(Board_GetNumWavesPerFlagAddr, &Board::GetNumWavesPerFlag, nullptr);
     homura::HookFunc(Board_IsLevelDataLoadedAddr, &Board::IsLevelDataLoaded, &old_Board_IsLevelDataLoaded);
@@ -237,20 +243,30 @@ void InitHookFunction() {
     homura::HookFunc(Challenge_DrawBackdropAddr, &Challenge::DrawBackdrop, &old_Challenge_DrawBackdrop);
 
 
-    homura::HookFunc(ChallengeScreen_AddedToManagerAddr, &ChallengeScreen::AddedToManager, &old_ChallengeScreen_AddedToManager);
-    homura::HookFunc(ChallengeScreen_RemovedFromManagerAddr, &ChallengeScreen::RemovedFromManager, &old_ChallengeScreen_RemovedFromManager);
-    homura::HookFunc(ChallengeScreen_Delete2Addr, &ChallengeScreen::_destructor, &old_ChallengeScreen__destructor);
-    homura::HookFunc(ChallengeScreen_UpdateAddr, &ChallengeScreen::Update, &old_ChallengeScreen_Update);
-    homura::HookFunc(ChallengeScreen_ChallengeScreenAddr, &ChallengeScreen::_constructor, &old_ChallengeScreen_ChallengeScreen);
-    homura::HookFunc(ChallengeScreen_DrawAddr, &ChallengeScreen::Draw, &old_ChallengeScreen_Draw);
-    homura::HookFunc(ChallengeScreen_KeyDownAddr, &ChallengeScreen::KeyDown, &old_ChallengeScreen_KeyDown);
+    homura::HookFunc(ChallengeScreen_AddedToManagerAddr, &ChallengeScreen::AddedToManager, nullptr);
+    homura::HookFunc(ChallengeScreen_RemovedFromManagerAddr, &ChallengeScreen::RemovedFromManager, nullptr);
+    homura::HookFunc(ChallengeScreen_Delete2Addr, &ChallengeScreen::_destructor, nullptr);
+    homura::HookFunc(ChallengeScreen_UpdateAddr, &ChallengeScreen::Update, nullptr);
+    homura::HookFunc(ChallengeScreen_ChallengeScreenAddr, &ChallengeScreen::_constructor, nullptr);
+    homura::HookFunc(ChallengeScreen_DrawAddr, &ChallengeScreen::Draw, nullptr);
+    homura::HookFunc(ChallengeScreen_KeyDownAddr, &ChallengeScreen::KeyDown, nullptr);
     homura::HookFunc(ChallengeScreen_ButtonDepressAddr, &ChallengeScreen::ButtonDepress, nullptr);
     homura::HookFunc(ChallengeScreen_UpdateButtonsAddr, &ChallengeScreen::UpdateButtons, nullptr);
-    homura::HookFunc(ChallengeScreen_DrawButtonAddr, &ChallengeScreen::DrawButton, &old_ChallengeScreen_DrawButton);
+    homura::HookFunc(ChallengeScreen_DrawButtonAddr, &ChallengeScreen::DrawButton, nullptr);
+    homura::HookFunc(ChallengeScreen_UpdateToolTipAddr, &ChallengeScreen::UpdateToolTip, nullptr);
+    homura::HookFunc(ChallengeScreen_KeyCharAddr, &ChallengeScreen::KeyChar, nullptr);
+    homura::HookFunc(ChallengeScreen_GameButtonDownAddr, &ChallengeScreen::GameButtonDown, nullptr);
+    homura::HookFunc(ChallengeScreen_SetUnlockChallengeIndexAddr, &ChallengeScreen::SetUnlockChallengeIndex, nullptr);
+    homura::HookFunc(ChallengeScreen_MoreTrophiesNeededAddr, &ChallengeScreen::MoreTrophiesNeeded, nullptr);
+    homura::HookFunc(ChallengeScreen_AccomplishmentsNeededAddr, &ChallengeScreen::AccomplishmentsNeeded, nullptr);
+    homura::HookFunc(ChallengePageHasEntryAddr, &ChallengePageHasEntry, nullptr);
+    homura::HookFunc(GetChallengeByRowColumnAddr, &GetChallengeByRowColumn, nullptr);
+    homura::HookFunc(GetModeByRowColumnAddr, &GetModeByRowColumn, nullptr);
     homura::HookFunc(GetChallengeDefinitionAddr, &GetChallengeDefinition, nullptr);
 
 
     homura::HookFunc(Coin_CoinInitializeAddr, &Coin::CoinInitialize, &old_Coin_CoinInitialize);
+    homura::HookFunc(Coin_CollectAddr, &Coin::Collect, &old_Coin_Collect);
     homura::HookFunc(Coin_UpadteAddr, &Coin::Update, &old_Coin_Update);
     homura::HookFunc(Coin_GamepadCursorOverAddr, &Coin::GamepadCursorOver, &old_Coin_GamepadCursorOver);
     homura::HookFunc(Coin_MouseHitTestAddr, &Coin::MouseHitTest, &old_Coin_MouseHitTest);
@@ -413,6 +429,7 @@ void InitHookFunction() {
     homura::HookFunc(Plant_UpdateMagnetShroomAddr, &Plant::UpdateMagnetShroom, nullptr);
     homura::HookFunc(Plant_UpdateSquashAddr, &Plant::UpdateSquash, nullptr);
     homura::HookFunc(Plant_CobCannonFireAddr, &Plant::CobCannonFire, nullptr);
+    homura::HookFunc(Plant_UpdateCobCannonAddr, &Plant::UpdateCobCannon, nullptr);
     // homura::HookFunc(Plant_UpdateReanimAddr, Plant_UpdateReanim, &old_Plant_UpdateReanim);
 
 
@@ -772,9 +789,9 @@ void InitVTableHookFunction() {
     homura::HookVirtualFunc(vTableForMailScreenAddr, 140, &MailScreen::ButtonPress, &old_MailScreen_ButtonPress);
     homura::HookVirtualFunc(vTableForMailScreenAddr, 141, &MailScreen::ButtonDepress, &old_MailScreen_ButtonDepress);
 
-    homura::HookVirtualFunc(vTableForChallengeScreenAddr, 78, &ChallengeScreen::MouseDown, &old_ChallengeScreen_MouseDown);
-    homura::HookVirtualFunc(vTableForChallengeScreenAddr, 81, &ChallengeScreen::MouseUp, &old_ChallengeScreen_MouseUp);
-    homura::HookVirtualFunc(vTableForChallengeScreenAddr, 83, &ChallengeScreen::MouseDrag, &old_ChallengeScreen_MouseDrag);
+    homura::HookVirtualFunc(vTableForChallengeScreenAddr, 78, &ChallengeScreen::MouseDown, nullptr);
+    homura::HookVirtualFunc(vTableForChallengeScreenAddr, 81, &ChallengeScreen::MouseUp, nullptr);
+    homura::HookVirtualFunc(vTableForChallengeScreenAddr, 83, &ChallengeScreen::MouseDrag, nullptr);
     homura::HookVirtualFunc(vTableForChallengeScreenAddr, 130, &ChallengeScreen::ButtonPress, nullptr);
 
     // homura::HookVirtualFunc(vTableForVSResultsMenuAddr, 78, &VSResultsMenu::MouseDown,nullptr);

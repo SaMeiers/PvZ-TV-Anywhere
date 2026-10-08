@@ -292,6 +292,7 @@ void LawnApp::LoadAddonImages() {
     addonImages.IMAGE_REANIM_PEANUT_HEAD2_2 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/peanut_head2_2");
     addonImages.IMAGE_REANIM_ENDURIAN_BODY2 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/endurian_body2");
     addonImages.IMAGE_REANIM_ENDURIAN_BODY3 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/endurian_body3");
+    addonImages.IMAGE_REANIM_ENDURIAN_BODY_UPPER2 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/endurian_body_upper2");
     addonImages.IMAGE_REANIM_ENDURIAN_EYE2 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/endurian_eye2");
     addonImages.IMAGE_REANIM_ENDURIAN_STEM2 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/endurian_stem2");
     addonImages.IMAGE_REANIM_ICE1 = GetImageByFileName("addonFiles/reanim/ExtendedPlants/ice1");
@@ -383,6 +384,10 @@ void LawnApp::DoConfirmBackToMain(bool theIsSave) {
 
 
 void LawnApp::ClearSecondPlayer() {
+    if (netplay::IsApplyingOnlineSaveGame()) {
+        return;
+    }
+    netplay::ClearSendBuffer();
     gIsServerModeNetplay = false;
     gIsConnectedToServer = false;
     gServerModeTransport = ServerModeTransport::NONE;
@@ -508,7 +513,12 @@ void LawnApp::HandleTcpClientMessage(const std::byte *buf, size_t bufSize) {
 
         BaseEvent *event = netplay::GetEvent(alignedBuf, clientRecvPtr);
         replay::RecordPacket(ReplayPacketDir::InboundClient, clientRecvPtr, event->size, static_cast<std::uint32_t>(mAppCounter));
-        LOG_DEBUG("event.type = {}", int(event->type));
+        // LOG_DEBUG("event.type = {}", int(event->type));
+
+        if (netplay::HandleSaveGameEvent(this, event, false)) {
+            offset += event->size;
+            continue;
+        }
 
         if (event->type == EVENT_PING) {
             auto *eventPing = static_cast<const U16_Event *>(event);
@@ -526,7 +536,7 @@ void LawnApp::HandleTcpClientMessage(const std::byte *buf, size_t bufSize) {
                 }
             }
         } else if (event->type >= EVENT_CLIENT_BOARD_TOUCH_DOWN && event->type < NUM_EVENT_BOARD) {
-            if (mBoard != nullptr) {
+            if (mBoard != nullptr && !netplay::IsSynchronizingSaveGame()) {
                 mBoard->processClientEvent(event);
             }
         } else if (event->type >= EVENT_SERVER_CHALLENGESCREEN_SELECT_MODE && event->type < NUM_EVENT_CHALLENGESCREEN) {
@@ -572,7 +582,12 @@ void LawnApp::HandleTcpServerMessage(const std::byte *buf, size_t bufSize) {
 
         BaseEvent *event = netplay::GetEvent(alignedBuf, serverRecvPtr);
         replay::RecordPacket(ReplayPacketDir::InboundServer, serverRecvPtr, event->size, static_cast<std::uint32_t>(mAppCounter));
-        LOG_DEBUG("event.type = {}", int(event->type));
+        // LOG_DEBUG("event.type = {}", int(event->type));
+
+        if (netplay::HandleSaveGameEvent(this, event, true)) {
+            offset += event->size;
+            continue;
+        }
 
         if (waitDialog != nullptr && waitDialog->ServerIsWaitingReservedSpectate()) {
             if (event->type == EVENT_SERVER_VSSETUPMENU_SYNC_VS_MODE) {
@@ -854,6 +869,7 @@ void LawnApp::UpdateFrames() {
     //    UpdateSessionState(); // 连接渡维服务器用
     //    UpdatePlayTimeStats(); // 本来就是空函数，故注释
 
+    netplay::UpdateSaveGameTransfer(this);
     int updateCount = 0;
 
     if (gSlowMo) {
@@ -875,6 +891,10 @@ void LawnApp::UpdateFrames() {
 
     if (replayActive && !replayPaused && !runReplayFrame) {
         updateCount = 0;
+    }
+
+    if (netplay::IsSynchronizingSaveGame() && !replayActive) {
+        updateCount = 0; // 继续处理 TCP 数据，但暂不推进两端正在同步的 Board。
     }
 
     for (int i = 0; i < updateCount; ++i) {
@@ -902,7 +922,12 @@ void LawnApp::UpdateFrames() {
             mEffectSystem->ProcessDeleteQueue();
         }
 
-        CheckForGameEnd();
+        // 结盟客户端仅在收到主机事件后进入下一轮生存关卡。
+        // 在此执行原版检查会导致轮次或存档记录被重复递增。
+        const bool waitForCoopRepick = IsRemoteClientOrViewer() && IsCoopMode() && mBoard != nullptr && mBoard->IsSurvivalStageWithRepick();
+        if (!waitForCoopRepick) {
+            CheckForGameEnd();
+        }
         UpdateSavingDingus();
     }
 
@@ -1251,6 +1276,9 @@ int LawnApp::GetSeedsAvailable(bool theIsZombieChooser) {
 }
 
 bool LawnApp::HasSeedType(SeedType theSeedType, bool theIsZombie) {
+    if (IsCoopMode() && theSeedType < NUM_SEEDS_IN_CHOOSER) {
+        return true;
+    }
     if (IsVSMode()) {
         if (Challenge::msVSShuffleMode) {
             return true;
@@ -1318,7 +1346,7 @@ bool LawnApp::IsNight() {
 int LawnApp::TrophiesNeedForGoldSunflower() {
     // 修复新增的小游戏不记入金向日葵达成条件
     int theNumMiniGames = 0;
-    for (int i = 0; i < 94; ++i) {
+    for (int i = 0; i < NUM_CHALLENGE_MODES; ++i) {
         if (GetChallengeDefinition(i).mPage == ChallengePage::CHALLENGE_PAGE_CHALLENGE) {
             theNumMiniGames++;
         }
@@ -1423,6 +1451,17 @@ bool LawnApp::IsAdventureMode() const {
     return mGameMode == GameMode::GAMEMODE_ADVENTURE;
 }
 
+ChallengeDefinition &LawnApp::GetCurrentChallengeDef() const {
+    for (int i = 0; i < NUM_CHALLENGE_MODES; i++) {
+        ChallengeDefinition &aDef = GetChallengeDefinition(i);
+        if (aDef.mChallengeMode == mGameMode) {
+            return aDef;
+        }
+    }
+
+    return GetChallengeDefinition(mGameMode - GameMode::GAMEMODE_SURVIVAL_NORMAL_STAGE_1);
+}
+
 bool LawnApp::IsPuzzleMode() const {
     return mGameMode >= GameMode::GAMEMODE_SCARY_POTTER_1 && mGameMode <= GameMode::GAMEMODE_PUZZLE_I_ZOMBIE_ENDLESS;
 }
@@ -1505,7 +1544,11 @@ bool LawnApp::IsVSMode() const {
 }
 
 bool LawnApp::IsCoopMode() const {
-    return mGameMode >= GameMode::GAMEMODE_TWO_PLAYER_COOP_DAY && mGameMode <= GameMode::GAMEMODE_TWO_PLAYER_COOP_ENDLESS;
+    return mGameMode == GameMode::GAMEMODE_MP_VS_COOP || mGameMode == GameMode::GAMEMODE_MP_VS_UNKONWN || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_DAY
+        || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_NIGHT || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_POOL || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_ROOF
+        || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOWLING || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_DAY_HARD || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_NIGHT_HARD
+        || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_POOL_HARD || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_ROOF_HARD || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS
+        || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_ENDLESS || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS_HARD;
 }
 
 bool LawnApp::IsTwinSunbankMode() const {
@@ -1520,11 +1563,13 @@ bool LawnApp::IsMiniBossLevel() const {
 }
 
 bool LawnApp::IsFinalBossLevel() const {
-    if (mBoard == nullptr)
+    if (mBoard == nullptr) {
         return false;
+    }
 
-    if (mGameMode == GameMode::GAMEMODE_CHALLENGE_FINAL_BOSS || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS)
+    if (mGameMode == GameMode::GAMEMODE_CHALLENGE_FINAL_BOSS || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS || mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS_HARD) {
         return true;
+    }
 
     return IsAdventureMode() && mPlayerInfo->mLevel == 50;
 }
@@ -1637,8 +1682,8 @@ void LawnApp::LoadingCompleted() {
 }
 
 bool LawnApp::TryLoadGame() {
-    // TODO: 适配结盟无尽的读档
-    if (IsOnlineModeActive()) {
+    // 联机仅限结盟无尽支持读档
+    if (IsOnlineModeActive() && (!IsRemoteServer() || mGameMode != GameMode::GAMEMODE_TWO_PLAYER_COOP_ENDLESS)) {
         return false;
     }
 
@@ -1728,9 +1773,13 @@ void LawnApp::PreNewGame(GameMode theGameMode, bool theLookForSavedGame) {
         netplay::FlushSendBuffer(gTcpServerSocket);
     }
     replay::ResetRecorder();
+    netplay::ResetSaveGameTransfer();
     if (IsOnlineModeActive()) {
-        PostEnterLevel();
         mGameMode = theGameMode;
+        if (theLookForSavedGame && theGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_ENDLESS && netplay::StartCoopEndlessLoad(this)) {
+            return;
+        }
+        PostEnterLevel();
         NewGame();
         return;
     }

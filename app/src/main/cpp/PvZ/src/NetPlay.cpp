@@ -21,6 +21,7 @@
 #include "Homura/Logger.h"
 #include "PvZ/GlobalVariable.h"
 #include "PvZ/Lawn/LawnApp.h"
+#include "PvZ/Lawn/System/SaveGame.h"
 #include "PvZ/ReplaySystem.h"
 
 #include <arpa/inet.h>
@@ -72,6 +73,9 @@ static std::string UrlEncode(std::string_view s) {
 }
 
 void netplay::detail::PutEventData(const std::byte *data, std::size_t n) {
+    if (IsApplyingOnlineSaveGame()) {
+        return; // Loading a snapshot must not emit gameplay side effects.
+    }
     sendBuffer.append_range(std::views::counted(data, n));
     const std::uint32_t replayTick = static_cast<std::uint32_t>(gLawnApp->mAppCounter);
     replay::RecordPacket(ReplayPacketDir::Outbound, data, n, replayTick);
@@ -82,23 +86,37 @@ bool netplay::FlushSendBuffer(int socket) {
         return true;
     }
 
-    const auto *p = sendBuffer.data();
-    const auto *end = sendBuffer.data() + sendBuffer.size();
-    while (p < end) {
-        ssize_t ret = send(socket, p, end - p, 0);
+    std::size_t sent = 0;
+    while (sent < sendBuffer.size()) {
+        ssize_t ret = send(socket, sendBuffer.data() + sent, sendBuffer.size() - sent, MSG_NOSIGNAL);
         if (ret < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                break;
+            }
             LOG_ERROR("Failed to send event: {}", std::strerror(errno));
+            shutdown(socket, SHUT_RDWR); // Let the existing receive path handle disconnect.
             break;
         }
-        p += ret;
+        if (ret == 0) {
+            break;
+        }
+        sent += static_cast<std::size_t>(ret);
     }
 
-    sendBuffer.clear();
-    return p >= end;
+    sendBuffer.erase(sendBuffer.begin(), sendBuffer.begin() + sent);
+    return sendBuffer.empty();
 }
 
 void netplay::ClearSendBuffer() noexcept {
     sendBuffer.clear();
+    ResetSaveGameTransfer();
+}
+
+bool netplay::HasPendingSendData() noexcept {
+    return !sendBuffer.empty();
 }
 
 std::size_t netplay::ParseEventSize(const std::byte *data) {
@@ -135,13 +153,14 @@ void netplay::MetricsResetSettlementEvents() {
 }
 
 void netplay::MetricsRecordSeedEvent(bool zombieSide, bool banEvent, int seedType) {
-    // BP analytics is only meaningful in Custom Battle mode.
-    if (gMetricsBattleType != 10) {
+    // 仅记录自定义对战的选卡和禁卡，其他模式不计入对战统计。
+    if (gLawnApp == nullptr || !gLawnApp->IsVSMode() || gMetricsBattleType != 10) {
         return;
     }
 
-    if (seedType < 0)
+    if (seedType < 0) {
         return;
+    }
     settleEvents.push_back(SettleEvent{settleSeq++, zombieSide ? 'Z' : 'P', banEvent ? 'B' : 'K', seedType});
 }
 
@@ -161,23 +180,43 @@ void netplay::MetricsSetVsBackground(int background) {
     gMetricsVsBackground = background;
 }
 void netplay::MetricsRecordPlantUsed(int seedType) {
-    if (seedType >= 0)
+    if (gLawnApp == nullptr || !gLawnApp->IsVSMode()) {
+        return;
+    }
+    if (seedType >= 0) {
         gMetricsPlantUseCount[seedType]++;
+    }
 }
 void netplay::MetricsRecordZombieUsed(int zombieType) {
-    if (zombieType >= 0)
+    if (gLawnApp == nullptr || !gLawnApp->IsVSMode()) {
+        return;
+    }
+    if (zombieType >= 0) {
         gMetricsZombieUseCount[zombieType]++;
+    }
 }
 void netplay::MetricsRecordMowerLoss() {
+    if (gLawnApp == nullptr || !gLawnApp->IsVSMode()) {
+        return;
+    }
     gMetricsMowerLoss++;
 }
 void netplay::MetricsRecordTargetLoss() {
+    if (gLawnApp == nullptr || !gLawnApp->IsVSMode()) {
+        return;
+    }
     gMetricsTargetLoss++;
 }
 void netplay::MetricsRecordGraveLoss() {
+    if (gLawnApp == nullptr || !gLawnApp->IsVSMode()) {
+        return;
+    }
     gMetricsGraveLoss++;
 }
 void netplay::MetricsRecordSunflowerLoss() {
+    if (gLawnApp == nullptr || !gLawnApp->IsVSMode()) {
+        return;
+    }
     gMetricsSunflowerLoss++;
 }
 
@@ -224,6 +263,10 @@ static bool SendSettlementPayloadBlocking(const std::string &serverIp, int serve
 }
 
 bool netplay::MetricsSendSettlement(bool plantWin, int mainCounter) {
+    // 非对战模式不能构造或上传对战结算数据。
+    if (gLawnApp == nullptr || !gLawnApp->IsVSMode()) {
+        return false;
+    }
     if (gMetricsServerIp.empty() || gMetricsServerPort <= 0) {
         LOG_WARN("[SETTLE] endpoint not ready ip='{}' port={}", gMetricsServerIp, gMetricsServerPort);
         return false;

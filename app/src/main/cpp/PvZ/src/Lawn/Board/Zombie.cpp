@@ -40,6 +40,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <iterator>
 
 #include <numbers>
 
@@ -121,6 +122,36 @@ ZombieDefinition gExtendedZombieDefs[] = {
     {ZOMBIE_SUPER_NOVA_GARGANTUAR, REANIM_SUPER_NOVA_GARGANTUAR, 10, 48, 15, 1500, "SUPER_NOVA_GARGANTUAR"},
     {ZOMBIE_CROSSING_GUARD, REANIM_ZOMBIE_CROSSING_GUARD, 4, 36, 10, 1000, "CROSSING_GUARD_ZOMBIE"},
     {ZOMBIE_SCIENTIST, REANIM_ZOMBIE_SCIENTIST, 2, 33, 10, 2000, "SCIENTIST_ZOMBIE"},
+};
+
+static constexpr ZombieType gBossZombieList[] = {
+    ZombieType::ZOMBIE_TRAFFIC_CONE,
+    ZombieType::ZOMBIE_PAIL,
+    ZombieType::ZOMBIE_FOOTBALL,
+    ZombieType::ZOMBIE_POLEVAULTER,
+    ZombieType::ZOMBIE_JACK_IN_THE_BOX,
+    ZombieType::ZOMBIE_LADDER,
+    ZombieType::ZOMBIE_ZAMBONI,
+    ZombieType::ZOMBIE_CATAPULT,
+    ZombieType::ZOMBIE_POGO,
+    ZombieType::ZOMBIE_NEWSPAPER,
+    ZombieType::ZOMBIE_DOOR,
+    ZombieType::ZOMBIE_GARGANTUAR,
+};
+
+static constexpr ZombieType gBossZombieListHard[] = {
+    ZombieType::ZOMBIE_TRAFFIC_CONE,
+    ZombieType::ZOMBIE_PAIL,
+    ZombieType::ZOMBIE_FOOTBALL,
+    ZombieType::ZOMBIE_SUPER_FAN_IMP,
+    ZombieType::ZOMBIE_GIGA_POLEVAULTER,
+    ZombieType::ZOMBIE_JACK_IN_THE_BOX,
+    ZombieType::ZOMBIE_GIGA_FOOTBALL,
+    ZombieType::ZOMBIE_ZAMBONI,
+    ZombieType::ZOMBIE_CATAPULT,
+    ZombieType::ZOMBIE_POGO,
+    ZombieType::ZOMBIE_SUNDAY_EDITION,
+    ZombieType::ZOMBIE_GIGA_GARGANTUAR,
 };
 
 ZombieDefinition &GetZombieDefinition(ZombieType theZombieType) {
@@ -213,6 +244,12 @@ void Zombie::ZombieInitialize(int theRow, ZombieType theType, bool theVariant, Z
         // 默认值
         // mZombieRect = Rect(36, 0, 42, 115);
         // mZombieAttackRect = Rect(50, 0, 20, 115);
+        case ZombieType::ZOMBIE_BOSS:
+            if (mApp->mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS_HARD) {
+                mBodyHealth = 80000;
+            }
+            break;
+
         case ZombieType::ZOMBIE_BALLOON:
             if (mApp->IsVSMode() && IsOnBoard()) {
                 mAltitude = 0.0f;
@@ -4073,7 +4110,14 @@ void Zombie::ZombieImpThrown(Zombie *theThrowerZombie, float theOffsetDistance) 
 
         const int aFlightFrames = std::max(1, int(std::ceil(aThrowingDistance / GIGA_IMP_FLY_SPEED)));
         const auto aFrames = float(aFlightFrames);
-        mVelZ = (THOWN_ZOMBIE_GRAVITY * aFrames * (aFrames + 1.0f) * 0.5f - mAltitude) / aFrames;
+        float aGroundHeightDifference = 0.0f;
+        if (mBoard->StageHasRoof()) {
+            // 按整数帧后的实际落点补偿屋顶坡度，避免滞空延长后飞入小推车。
+            const float aLandingX = mPosX - mVelX * aFrames;
+            const float aLandingY = mBoard->GetPosYBasedOnRow(aLandingX + 40.0f, mRow) - 30.0f;
+            aGroundHeightDifference = aLandingY - mPosY;
+        }
+        mVelZ = (THOWN_ZOMBIE_GRAVITY * aFrames * (aFrames + 1.0f) * 0.5f - mAltitude - aGroundHeightDifference) / aFrames;
 
         PlayZombieReanim("anim_thrown", ReanimLoopType::REANIM_PLAY_ONCE_AND_HOLD, 0, 18.0f);
         UpdateReanim();
@@ -6153,8 +6197,13 @@ void Zombie::MowDown() {
 }
 
 void Zombie::MowDown_Original() {
-    if (mDead || mZombiePhase == ZombiePhase::PHASE_ZOMBIE_MOWERED || mZombieType == ZombieType::ZOMBIE_BOSS)
+    if (mDead || mZombiePhase == ZombiePhase::PHASE_ZOMBIE_MOWERED || mZombieType == ZombieType::ZOMBIE_BOSS) {
         return;
+    }
+
+    // 小推车压死僵尸不结算阳光豆
+    mSunBeanSun = 0;
+    mSunBeanDamageRemainder = 0;
 
     if (mZombieType == ZombieType::ZOMBIE_CATAPULT) {
         mApp->AddTodParticle(mPosX + 80.0f, mPosY + 60.0f, mRenderOrder + 1, ParticleEffect::PARTICLE_CATAPULT_EXPLOSION);
@@ -7755,8 +7804,12 @@ bool Zombie::CanTargetPlant(Plant *thePlant, ZombieAttackType theAttackType) {
     }
 
     if (thePlant->mSeedType == SeedType::SEED_CELERY_STALKER) {
-        return IsGargantuar() || mZombieType == ZombieType::ZOMBIE_DOG || theAttackType == ZombieAttackType::ATTACKTYPE_DRIVE_OVER
+        const bool aCanTargetCeleryStalker = IsGargantuar() || mZombieType == ZombieType::ZOMBIE_DOG || theAttackType == ZombieAttackType::ATTACKTYPE_DRIVE_OVER
             || (theAttackType != ZombieAttackType::ATTACKTYPE_LADDER && !thePlant->IsCeleryStalkerLow());
+        if (!aCanTargetCeleryStalker) {
+            return false;
+        }
+        // 允许攻击时继续检查同格植物优先级，避免绕过南瓜保护。
     }
 
     if (thePlant->IsSpiky()) {
@@ -8614,18 +8667,19 @@ void Zombie::SetupLostArmReanim() {
 }
 
 void Zombie::BungeeDropZombie(Zombie *theDroppedZombie, int theGridX, int theGridY) {
-    if (IsRemoteClientOrViewer())
+    if (IsRemoteClientOrViewer()) {
         return;
+    }
 
     BungeeDropZombie_Origin(theDroppedZombie, theGridX, theGridY);
 
     if (IsRemoteServer()) {
-        U16UNI32UNI32_Event event{};
+        U8U8U16U16_Event event{};
         event.type = EventType::EVENT_SERVER_BOARD_ZOMBIE_BUNGEE_DROP_ZOMBIE;
-        event.data2.u16x2.u16_1 = uint16_t(mBoard->mZombies.DataArrayGetID(this));
-        event.data2.u16x2.u16_2 = uint16_t(mBoard->mZombies.DataArrayGetID(theDroppedZombie));
-        event.data2.u8x4.u8_1 = uint8_t(theGridX);
-        event.data2.u8x4.u8_2 = uint8_t(theGridY);
+        event.data1 = uint8_t(theGridX);
+        event.data2 = uint8_t(theGridY);
+        event.data3 = uint16_t(mBoard->mZombies.DataArrayGetID(this));
+        event.data4 = uint16_t(mBoard->mZombies.DataArrayGetID(theDroppedZombie));
         netplay::PutEvent(event);
     }
 }
@@ -10839,37 +10893,48 @@ void Zombie::BossDie() {
 }
 
 void Zombie::BossSpawnContact() {
-    if (IsRemoteClientOrViewer())
+    if (IsRemoteClientOrViewer()) {
         return;
-
-    ZombieType aZombieType;
-    if (mZombieAge < 3500) {
-        aZombieType = ZombieType::ZOMBIE_NORMAL;
-    } else if (mZombieAge < 8000) {
-        aZombieType = ZombieType::ZOMBIE_TRAFFIC_CONE;
-    } else if (mZombieAge < 12500) {
-        aZombieType = ZombieType::ZOMBIE_PAIL;
-    } else {
-        const auto *aZombieList = reinterpret_cast<const ZombieType *>(gBossZombieListAddr);
-        const int aZombieTypeCount = mTargetRow == 0 ? 11 : 12;
-        aZombieType = aZombieList[Rand(aZombieTypeCount)];
     }
 
-    Zombie *aZombie = mBoard->AddZombieInRow_Origin(aZombieType, mTargetRow, 0, true);
-    aZombie->mPosX = 600.0f;
-    if (IsRemoteServer() && mApp->mGameScene == GameScenes::SCENE_PLAYING) {
-        U8x5U16UNI32x2_Event event{};
-        event.type = EVENT_SERVER_BOARD_ZOMBIE_ADD;
-        event.data1[0] = uint8_t(aZombieType);
-        event.data1[1] = uint8_t(mTargetRow);
-        event.data1[2] = 0;
-        event.data1[3] = 1;
-        event.data1[4] = aZombieType == ZombieType::ZOMBIE_NORMAL && !aZombie->mInPool ? aZombie->mBloated : 0;
-        event.data2 = uint16_t(mBoard->mZombies.DataArrayGetID(aZombie));
-        event.data3[0].f32 = aZombie->mVelX;
-        event.data3[1].f32 = aZombie->mPosX;
-        netplay::PutEvent(event);
-        netplay::MetricsRecordZombieUsed(int(aZombieType));
+    const bool aIsHardMode = mApp->mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS_HARD;
+    // 困难模式三个阶段每次分别放出两只、三只、四只，普通模式仍放一只。
+    const int aSpawnCount = aIsHardMode ? mBossMode + 2 : 1;
+    for (int i = 0; i < aSpawnCount; ++i) {
+        ZombieType aZombieType;
+        if (mZombieAge < 3500) {
+            aZombieType = aIsHardMode ? ZombieType::ZOMBIE_TRAFFIC_CONE : ZombieType::ZOMBIE_NORMAL;
+        } else if (mZombieAge < 8000) {
+            aZombieType = aIsHardMode ? ZombieType::ZOMBIE_PAIL : ZombieType::ZOMBIE_TRAFFIC_CONE;
+        } else if (mZombieAge < 12500) {
+            aZombieType = aIsHardMode ? ZombieType::ZOMBIE_FOOTBALL : ZombieType::ZOMBIE_PAIL;
+        } else {
+            const ZombieType *aZombieList = aIsHardMode ? gBossZombieListHard : gBossZombieList;
+            int aZombieTypeCount = aIsHardMode ? int(std::size(gBossZombieListHard)) : int(std::size(gBossZombieList));
+            if (mTargetRow == 0) {
+                aZombieTypeCount--;
+            }
+            aZombieType = aZombieList[Rand(aZombieTypeCount)];
+        }
+
+        Zombie *aZombie = mBoard->AddZombieInRow_Origin(aZombieType, mTargetRow, 0, true);
+        aZombie->mPosX = 600.0f;
+        if (IsRemoteServer() && mApp->mGameScene == GameScenes::SCENE_PLAYING) {
+            U8x4U16UNI32x2_Event event{};
+            event.type = EVENT_SERVER_BOARD_ZOMBIE_ADD;
+            event.data1[0] = uint8_t(aZombieType);
+            event.data1[1] = uint8_t(mTargetRow);
+            event.data1[2] = 0;
+            event.data1[3] = 1;
+            if (aZombieType == ZombieType::ZOMBIE_NORMAL && !aZombie->mInPool) {
+                event.data1[3] |= uint8_t(aZombie->mBloated) << 1;
+            }
+            event.data2 = uint16_t(mBoard->mZombies.DataArrayGetID(aZombie));
+            event.data3[0].f32 = aZombie->mVelX;
+            event.data3[1].f32 = aZombie->mPosX;
+            netplay::PutEvent(event);
+            netplay::MetricsRecordZombieUsed(int(aZombieType));
+        }
     }
 }
 

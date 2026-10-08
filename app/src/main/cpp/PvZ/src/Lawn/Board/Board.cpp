@@ -43,6 +43,7 @@
 #include "PvZ/Lawn/LawnApp.h"
 #include "PvZ/Lawn/System/Music.h"
 #include "PvZ/Lawn/System/ReanimationLawn.h"
+#include "PvZ/Lawn/System/SaveGame.h"
 #include "PvZ/Lawn/VSActionSystem.h"
 #include "PvZ/Lawn/Widget/ChallengeScreen.h"
 #include "PvZ/Lawn/Widget/GameButton.h"
@@ -83,17 +84,30 @@ IdMap serverPlantIDMap;
 IdMap serverZombieIDMap;
 IdMap serverCoinIDMap;
 IdMap serverGridItemIDMap;
+uint32_t gSyncedCobCannonSelection[2] = {};
+int gSyncedProgressMeterWidth = -1;
+int gSyncedProgressMeterWave = -1;
 constexpr uintptr_t kBoardButtonListenerVtableOffset = 0x1FC;
 constexpr uintptr_t kBoardButtonListenerVTableOffset2 = 0x228;
 constexpr uint8_t kNoSelectedSeedIndex = UINT8_MAX;
 
-// Kept outside Board to preserve the native object's layout.
+// 放在 Board 类外，避免改变原版对象的内存布局。
 struct CoopToolState {
     GameObjectType tool = OBJECT_TYPE_NONE;
     GameObjectType pressedButton = OBJECT_TYPE_NONE;
     bool touching = false;
 };
 CoopToolState gCoopTools[2];
+bool gLocalLawnViewTouch = false;
+constexpr int kButterGloveCooldown = 10 * 100;
+
+SeedChooserScreen *GetOnlineCoopLawnView(Board *board) {
+    SeedChooserScreen *chooser = board->mApp->mSeedChooserScreen;
+    if (!IsOnlineModeActive() || !board->mApp->IsCoopMode() || board->mApp->mGameScene != SCENE_LEVEL_INTRO || chooser == nullptr || chooser->mChooseState != SeedChooserState::CHOOSE_VIEW_LAWN) {
+        return nullptr;
+    }
+    return chooser;
+}
 
 int DecodeSelectedSeedIndex(uint8_t encodedIndex, const SeedBank *seedBank) {
     if (encodedIndex == kNoSelectedSeedIndex) {
@@ -111,6 +125,7 @@ int DecodeSelectedSeedIndex(uint8_t encodedIndex, const SeedBank *seedBank) {
 } // namespace
 
 void Board::_constructor(LawnApp *theApp) {
+    gLocalLawnViewTouch = false;
     for (auto &tool : gCoopTools) {
         tool = {};
     }
@@ -139,6 +154,16 @@ void Board::_constructor(LawnApp *theApp) {
 
     mApp = theApp;
     mApp->mBoard = this;
+    // 联机 ID 映射只属于当前棋盘，结盟模式也需要重置。
+    // 新棋盘不能通过上一局的槽位映射解析事件。
+    serverPlantIDMap.clear();
+    serverZombieIDMap.clear();
+    serverCoinIDMap.clear();
+    serverGridItemIDMap.clear();
+    gSyncedCobCannonSelection[0] = 0;
+    gSyncedCobCannonSelection[1] = 0;
+    gSyncedProgressMeterWidth = -1;
+    gSyncedProgressMeterWave = -1;
     unknownBool = false;
 
     mZombies.DataArrayInitialize(1024U, "zombies");
@@ -323,10 +348,6 @@ void Board::_constructor(LawnApp *theApp) {
     if (theApp->IsVSMode()) {
         mShovelWidget = new ShovelRedirectWidget(this);
         mShovelWidget->Resize(gTouchVSShovelRect.mX, gTouchVSShovelRect.mY, gTouchVSShovelRect.mWidth, gTouchVSShovelRect.mHeight);
-        serverPlantIDMap.clear();
-        serverZombieIDMap.clear();
-        serverCoinIDMap.clear();
-        serverGridItemIDMap.clear();
     }
     mReplayControlsWidget = new ReplayControlsWidget(this);
 }
@@ -424,6 +445,21 @@ Projectile *Board::AddProjectile(int theX, int theY, int theRenderOrder, int the
     aProjectile->ProjectileInitialize(theX, theY, theRenderOrder, theRow, theProjectileType);
     mPeaShooterUsed = true;
     return aProjectile;
+}
+
+void Board::SyncCobCannonSelection(int thePlayerIndex) {
+    if (!IsRemoteServer()) {
+        return;
+    }
+
+    GamepadControls *aControls = mGamepadControls[thePlayerIndex];
+    const uint32_t aPlantID = aControls->mIsCobCannonSelected ? uint32_t(aControls->mCobCannonPlantIndexInList) : 0;
+    if (gSyncedCobCannonSelection[thePlayerIndex] == aPlantID) {
+        return;
+    }
+    gSyncedCobCannonSelection[thePlayerIndex] = aPlantID;
+    U8U8U16_Event aEvent = {{EventType::EVENT_SERVER_BOARD_GAMEPAD_PICKUP_COB_CANNON}, uint8_t(thePlayerIndex), uint8_t(aPlantID != 0), aPlantID != 0 ? uint16_t(aPlantID) : NETPLAY_PLANT_ID_NULL};
+    netplay::PutEvent(aEvent);
 }
 
 void Board::SpawnTeleportEffect(float theX, float theY, int theRow) {
@@ -645,15 +681,32 @@ void Board::ApplyCoopButter(int thePlayerIndex) {
         return;
     }
     auto *controls = mGamepadControls[thePlayerIndex];
-    // The last argument enables butter hit testing; it is not a player index.
+    // 最后一个参数用于启用黄油命中检测，不是玩家索引。
     Zombie *zombie = ZombieHitTest(controls->mCursorPositionX, controls->mCursorPositionY, 1);
-    if (zombie != nullptr) {
-        int oldCounter = zombie->mButteredCounter;
-        zombie->AddButter();
-        if (zombie->mButteredCounter != oldCounter) {
-            U16_Event event = {{EVENT_SERVER_BOARD_ZOMBIE_ADD_BUTTER}, uint16_t(mZombies.DataArrayGetID(zombie))};
-            netplay::PutEvent(event);
-        }
+    ApplyButterFromGlove(zombie, thePlayerIndex);
+}
+
+void Board::ApplyButterFromGlove(Zombie *theZombie, int thePlayerIndex) {
+    if (IsRemoteClientOrViewer() || mPaused || mApp->mGameScene != SCENE_PLAYING || theZombie == nullptr) {
+        return;
+    }
+    const bool aHasCooldown = mApp->mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS_HARD;
+    if (aHasCooldown && mButterGloveCooldownCounter[thePlayerIndex] > 0) {
+        return;
+    }
+
+    const int aOldCounter = theZombie->mButteredCounter;
+    theZombie->AddButter();
+    if (theZombie->mButteredCounter == aOldCounter) {
+        return;
+    }
+    // 成功糊到一个僵尸才消耗使用者的冷却，不影响另一人和玉米投手。
+    if (aHasCooldown) {
+        mButterGloveCooldownCounter[thePlayerIndex] = kButterGloveCooldown;
+    }
+    if (IsRemoteServer()) {
+        U8U16_Event event = {{EVENT_SERVER_BOARD_ZOMBIE_ADD_BUTTER}, uint8_t(thePlayerIndex), uint16_t(mZombies.DataArrayGetID(theZombie))};
+        netplay::PutEvent(event);
     }
 }
 
@@ -695,7 +748,7 @@ bool Board::HandleCoopToolTouch(int thePlayerIndex, int x, int y, CoopToolTouch 
     controls->mCursorPositionX = x;
     controls->mCursorPositionY = y;
     if (onLawn && state.pressedButton != OBJECT_TYPE_NONE) {
-        // Dragging out of a selected button also works after toggling it off.
+        // 已选中的按钮即使被再次点击取消，也仍然支持从按钮处拖出使用道具。
         SetCoopTool(thePlayerIndex, state.pressedButton);
         state.pressedButton = OBJECT_TYPE_NONE;
     }
@@ -904,9 +957,9 @@ int Board::GetCurrentPlantCost(SeedType theSeedType, SeedType theImitaterType) {
 }
 
 void Board::AddSunMoney(int theAmount, int thePlayerIndex) {
-    // Co-op clients receive authoritative balances from the host. Their
-    // local collection animation must not award the same sun a second time.
-    if (mApp->IsCoopMode() && IsRemoteClient()) {
+    // 结盟客户端的阳光余额以主机同步结果为准。
+    // 本地收集动画不能再次增加同一份阳光。
+    if (mApp->IsCoopMode() && IsRemoteClientOrViewer()) {
         return;
     }
     // 无限阳光
@@ -920,8 +973,8 @@ void Board::AddSunMoney(int theAmount, int thePlayerIndex) {
         old_Board_AddSunMoney(this, theAmount, thePlayerIndex);
     }
     if (mApp->IsCoopMode() && IsRemoteServer()) {
-        I16I16_Event event = {{EventType::EVENT_SERVER_BOARD_TAKE_SUNMONEY}, int16_t(mSunMoney1), int16_t(mSunMoney2)};
-        netplay::PutEvent(event);
+        I16I16_Event aEvent = {{EventType::EVENT_SERVER_BOARD_TAKE_SUNMONEY}, int16_t(mSunMoney1), int16_t(mSunMoney2)};
+        netplay::PutEvent(aEvent);
     }
 }
 
@@ -1294,6 +1347,9 @@ bool Board::KeyUp(Sexy::KeyCode theKey) {
 }
 
 bool Board::KeyDown(KeyCode theKey) {
+    if (netplay::IsSynchronizingSaveGame()) {
+        return true;
+    }
     // 联机对战屏蔽按键，仅允许返回键
     bool isOnlineMode = (IsRemoteClient() || IsRemoteServer());
     if (isOnlineMode) {
@@ -1302,7 +1358,7 @@ bool Board::KeyDown(KeyCode theKey) {
     // 用于切换键盘模式，自动开关砸罐子老虎机种子雨关卡内的"自动拾取植物卡片"功能
     if (theKey >= 37 && theKey <= 40) {
         if (!gKeyboardMode) {
-            patchlist::autoPickupSeedPacketDisable.Restore();
+            GetPatchList().autoPickupSeedPacketDisable.Restore();
         }
         gKeyboardMode = true;
         requestDrawShovelInCursor = false;
@@ -1460,6 +1516,23 @@ void Board::GameButtonUp(GamepadButton theButton, int thePlayerIndex, unsigned i
 }
 
 Coin *Board::AddCoin(int theX, int theY, CoinType theCoinType, CoinMotion theCoinMotion) {
+    const bool aIsSun = theCoinType == CoinType::COIN_SUN || theCoinType == CoinType::COIN_SMALLSUN || theCoinType == CoinType::COIN_LARGESUN || theCoinType == CoinType::COIN_MINISUN
+        || theCoinType == CoinType::COIN_COOP_DOUBLE_SUN;
+    if (mApp->IsCoopMode() && IsRemoteServer() && aIsSun) {
+        Coin *aCoin = old_Board_AddCoin(this, theX, theY, theCoinType, theCoinMotion);
+        // 除创建参数和收集所需的 ID 外，只同步主机随机生成的落点。
+        U16I16I16U8U8I16_Event aEvent{};
+        aEvent.type = EventType::EVENT_SERVER_BOARD_COIN_ADD_SUN;
+        aEvent.data1 = uint16_t(mCoins.DataArrayGetID(aCoin));
+        aEvent.data2 = int16_t(theX);
+        aEvent.data3 = int16_t(theY);
+        aEvent.data4 = uint8_t(aCoin->mType);
+        aEvent.data5 = uint8_t(theCoinMotion);
+        aEvent.data6 = int16_t(aCoin->mGroundY);
+        netplay::PutEvent(aEvent);
+        return aCoin;
+    }
+
     if (IsRemoteServer()) {
         U8U8U16U16_Event event = {{EventType::EVENT_SERVER_BOARD_COIN_ADD}, uint8_t(theCoinType), uint8_t(theCoinMotion), uint16_t(theX), uint16_t(theY)};
         netplay::PutEvent(event);
@@ -1732,6 +1805,14 @@ void Board::PickBackground() {
         mPlantRow[3] = PlantRowType::PLANTROW_POOL;
         mPlantRow[4] = PlantRowType::PLANTROW_POOL;
         mPlantRow[5] = PlantRowType::PLANTROW_NORMAL;
+        InitCoverLayer();
+        SetGrids();
+    } else if (mApp->mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS_HARD) {
+        mBackground = BackgroundType::BACKGROUND_6_BOSS;
+        LoadBackgroundImages();
+        for (int aRow = 0; aRow < MAX_GRID_SIZE_Y; aRow++) {
+            mPlantRow[aRow] = aRow == 5 ? PlantRowType::PLANTROW_DIRT : PlantRowType::PLANTROW_NORMAL;
+        }
         InitCoverLayer();
         SetGrids();
     } else if (mApp->mGameMode == GameMode::GAMEMODE_MP_VS) {
@@ -2067,14 +2148,15 @@ Zombie *Board::AddZombieInRow(ZombieType theZombieType, int theRow, int theFromW
                     netplay::PutEvent(event);
                 }
             } else {
-                U8x5U16UNI32x2_Event event{};
+                U8x4U16UNI32x2_Event event{};
                 event.type = EventType::EVENT_SERVER_BOARD_ZOMBIE_ADD;
                 event.data1[0] = uint8_t(theZombieType);
                 event.data1[1] = uint8_t(theRow);
                 event.data1[2] = int8_t(theFromWave);
+                // 标志位：bit 0 为 theIsRustle，bit 1 为非水路普僵的 mBloated。
                 event.data1[3] = uint8_t(theIsRustle);
                 if (theZombieType == ZombieType::ZOMBIE_NORMAL && !aZombie->mInPool) {
-                    event.data1[4] = aZombie->mBloated;
+                    event.data1[3] |= uint8_t(aZombie->mBloated) << 1;
                 }
 
                 event.data2 = uint16_t(mZombies.DataArrayGetID(aZombie));
@@ -2310,6 +2392,29 @@ void Board::processServerEvent(const BaseEvent *event) {
             GamepadControls *serverGamepadControls = mGamepadControls[0]->mGamepadIndex == 0 ? mGamepadControls[0] : mGamepadControls[1];
             serverGamepadControls->mGamepadState = BaseGamepadControls::MovementState(event1->data);
         } break;
+        case EVENT_SERVER_BOARD_GAMEPAD_PICKUP_COB_CANNON: {
+            const auto *selectionEvent = static_cast<const U8U8U16_Event *>(event);
+            GamepadControls *controls = mGamepadControls[selectionEvent->data1];
+            Plant *cobCannon = nullptr;
+            if (selectionEvent->data2) {
+                uint16_t clientPlantID = 0;
+                if (!homura::FindInMap(serverPlantIDMap, selectionEvent->data3, clientPlantID)) {
+                    break;
+                }
+                cobCannon = mPlants.DataArrayGet(clientPlantID);
+                if (cobCannon->mDead || cobCannon->mSeedType != SEED_COBCANNON) {
+                    break;
+                }
+            }
+            ClearCursor(selectionEvent->data1);
+            controls->mIsCobCannonSelected = cobCannon != nullptr;
+            controls->mCobCannonPlantIndexInList = cobCannon != nullptr ? int(mPlants.DataArrayGetID(cobCannon)) : 0;
+            controls->mCobCannonAnimCounter = 0;
+            controls->mDrawCursorFrame = cobCannon == nullptr;
+            mCobCannonCursorDelayCounter = cobCannon != nullptr ? 30 : 0;
+            mCobCannonMouseX = int(controls->mCursorPositionX);
+            mCobCannonMouseY = int(controls->mCursorPositionY);
+        } break;
         case EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL: {
             auto *event1 = static_cast<const U8_Event *>(event);
             if (!requestDrawShovelInCursor && event1->data) {
@@ -2322,9 +2427,13 @@ void Board::processServerEvent(const BaseEvent *event) {
             SetCoopTool(toolEvent->data1, GameObjectType(toolEvent->data2));
         } break;
         case EVENT_SERVER_BOARD_ZOMBIE_ADD_BUTTER: {
-            auto *butterEvent = static_cast<const U16_Event *>(event);
+            auto *butterEvent = static_cast<const U8U16_Event *>(event);
+            // 只启动实际使用者的冷却，本地按钮不受另一人的使用影响。
+            if (mApp->mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS_HARD) {
+                mButterGloveCooldownCounter[butterEvent->data1] = kButterGloveCooldown;
+            }
             uint16_t clientZombieID = 0;
-            if (homura::FindInMap(serverZombieIDMap, butterEvent->data, clientZombieID)) {
+            if (homura::FindInMap(serverZombieIDMap, butterEvent->data2, clientZombieID)) {
                 Zombie *zombie = mZombies.DataArrayGet(clientZombieID);
                 if (zombie != nullptr) {
                     if (zombie->mButteredCounter == 0) {
@@ -2340,6 +2449,33 @@ void Board::processServerEvent(const BaseEvent *event) {
         case EVENT_SERVER_BOARD_PAUSE: {
             auto *event1 = static_cast<const U8_Event *>(event);
             PauseFromSecondPlayer(event1->data);
+        } break;
+        case EVENT_SERVER_BOARD_COIN_ADD_SUN: {
+            const auto *aEvent = static_cast<const U16I16I16U8U8I16_Event *>(event);
+            Coin *aCoin = old_Board_AddCoin(this, aEvent->data2, aEvent->data3, CoinType(aEvent->data4), CoinMotion(aEvent->data5));
+            aCoin->mGroundY = aEvent->data6;
+
+            if (!mApp->IsCoopMode()) {
+                break;
+            }
+
+            serverCoinIDMap[aEvent->data1] = uint16_t(mCoins.DataArrayGetID(aCoin));
+        } break;
+        case EVENT_SERVER_BOARD_COIN_COLLECT: {
+            if (!mApp->IsCoopMode()) {
+                break;
+            }
+            const auto *aEvent = static_cast<const U8U16_Event *>(event);
+            const auto aIt = serverCoinIDMap.find(aEvent->data2);
+            if (aIt == serverCoinIDMap.end()) {
+                break;
+            }
+            Coin *aCoin = mCoins.DataArrayGet(aIt->second);
+            serverCoinIDMap.erase(aIt);
+            if (aCoin == nullptr || aCoin->mDead || aCoin->mIsBeingCollected || (!aCoin->IsSun() && aCoin->mType != CoinType::COIN_COOP_DOUBLE_SUN)) {
+                break;
+            }
+            old_Coin_Collect(aCoin, aEvent->data1);
         } break;
         case EVENT_SERVER_BOARD_COIN_ADD: {
             auto *event1 = static_cast<const U8U8U16U16_Event *>(event);
@@ -2482,6 +2618,26 @@ void Board::processServerEvent(const BaseEvent *event) {
                 aPlant->Fire_Origin(aZombie, aRow, aPlantWeapon, aGridItem);
             }
         } break;
+        case EVENT_SERVER_BOARD_PLANT_COB_CANNON_FIRE: {
+            const auto *fireEvent = static_cast<const U16UNI32_Event *>(event);
+            uint16_t clientPlantID = 0;
+            if (homura::FindInMap(serverPlantIDMap, fireEvent->data1, clientPlantID)) {
+                Plant *cobCannon = mPlants.DataArrayGet(clientPlantID);
+                if (!cobCannon->mDead && cobCannon->mSeedType == SEED_COBCANNON) {
+                    cobCannon->CobCannonFire_Origin(fireEvent->data2.i16x2.i16_1, fireEvent->data2.i16x2.i16_2);
+                }
+            }
+        } break;
+        case EVENT_SERVER_BOARD_PLANT_COB_CANNON_STATE: {
+            const auto *stateEvent = static_cast<const U16U16U16UNI32UNI32_Event *>(event);
+            uint16_t clientPlantID = 0;
+            if (homura::FindInMap(serverPlantIDMap, stateEvent->data1, clientPlantID)) {
+                Plant *cobCannon = mPlants.DataArrayGet(clientPlantID);
+                if (!cobCannon->mDead && cobCannon->mSeedType == SEED_COBCANNON) {
+                    cobCannon->ApplyCobCannonState(PlantState(stateEvent->data2), stateEvent->data3, stateEvent->data4.i32, stateEvent->data5.f32);
+                }
+            }
+        } break;
         case EVENT_SERVER_BOARD_PLANT_ADD: {
             auto *eventPlantAdd = static_cast<const U16U16U16UNI32UNI32_Event *>(event);
             int gridX = eventPlantAdd->data1;
@@ -2505,6 +2661,15 @@ void Board::processServerEvent(const BaseEvent *event) {
                     aPlant->mY = eventBowling->data5;
                     aPlant->mRenderOrder = eventBowling->data6.i32;
                 }
+            }
+        } break;
+        case EVENT_SERVER_BOARD_PLANT_SLEEP_STATE: {
+            const auto *sleepEvent = static_cast<const U16U16U8_Event *>(event);
+            uint16_t clientPlantID = 0;
+            if (homura::FindInMap(serverPlantIDMap, sleepEvent->data1, clientPlantID)) {
+                Plant *aPlant = mPlants.DataArrayGet(clientPlantID);
+                aPlant->SetSleeping(sleepEvent->data3 != 0);
+                aPlant->mWakeUpCounter = sleepEvent->data2;
             }
         } break;
         case EVENT_SERVER_BOARD_PLANT_IMITATER_MORPH: {
@@ -2767,11 +2932,11 @@ void Board::processServerEvent(const BaseEvent *event) {
             }
         } break;
         case EVENT_SERVER_BOARD_ZOMBIE_ADD: {
-            auto *eventZombieAdd = static_cast<const U8x5U16UNI32x2_Event *>(event);
+            auto *eventZombieAdd = static_cast<const U8x4U16UNI32x2_Event *>(event);
             auto aZombieType = ZombieType(eventZombieAdd->data1[0]);
             uint8_t aRow = eventZombieAdd->data1[1];
             auto aFromWave = int8_t(eventZombieAdd->data1[2]);
-            uint8_t aIsRustle = eventZombieAdd->data1[3];
+            const bool aIsRustle = (eventZombieAdd->data1[3] & 1) != 0;
             if (aZombieType == ZombieType::ZOMBIE_BACKUP_DANCER) // 移除主机生成时向客机同步传递的舞伴
                 return;
             Zombie *aZombie = AddZombieInRow_Origin(aZombieType, aRow, aFromWave, aIsRustle);
@@ -2780,7 +2945,7 @@ void Board::processServerEvent(const BaseEvent *event) {
             aZombie->ApplySyncedSpeed(aVelX, short(aZombie->mAnimTicksPerFrame));
             aZombie->mPosX = eventZombieAdd->data3[1].f32;
             if (aZombie->mZombieType == ZombieType::ZOMBIE_NORMAL && !aZombie->mInPool) {
-                aZombie->mBloated = eventZombieAdd->data1[4];
+                aZombie->mBloated = (eventZombieAdd->data1[3] & 2) != 0;
             }
         } break;
         case EVENT_SERVER_BOARD_ZOMBIE_BOBSELD_ADD: {
@@ -2862,11 +3027,11 @@ void Board::processServerEvent(const BaseEvent *event) {
         } break;
 
         case EVENT_SERVER_BOARD_ZOMBIE_BUNGEE_DROP_ZOMBIE: {
-            auto *eventBungeeDropZombie = static_cast<const U16UNI32UNI32_Event *>(event);
-            int gridX = eventBungeeDropZombie->data2.u8x4.u8_1;
-            int gridY = eventBungeeDropZombie->data2.u8x4.u8_2;
-            uint16_t serverBungeeZombieID = eventBungeeDropZombie->data2.u16x2.u16_1;
-            uint16_t serverDroppedZombieID = eventBungeeDropZombie->data2.u16x2.u16_2;
+            auto *eventBungeeDropZombie = static_cast<const U8U8U16U16_Event *>(event);
+            int gridX = eventBungeeDropZombie->data1;
+            int gridY = eventBungeeDropZombie->data2;
+            uint16_t serverBungeeZombieID = eventBungeeDropZombie->data3;
+            uint16_t serverDroppedZombieID = eventBungeeDropZombie->data4;
             uint16_t clientDroppedZombieID = 0;
 
             Zombie *aBungeeZombie = AddZombie_Origin(ZombieType::ZOMBIE_BUNGEE, Zombie::ZOMBIE_WAVE_VS, false);
@@ -3610,7 +3775,7 @@ void Board::processServerEvent(const BaseEvent *event) {
                 for (int i = 0; i < NUM_BOSS_BUNGEES; ++i) {
                     uint16_t clientFollowerID = 0;
                     if (bossEvent->data[i + 1] != NETPLAY_ZOMBIE_ID_NULL && homura::FindInMap(serverZombieIDMap, bossEvent->data[i + 1], clientFollowerID)) {
-                        // ZombieTryToGet needs the full generation ID, not the network slot.
+                        // ZombieTryToGet 需要包含代数的完整 ID，不能直接使用网络槽位索引。
                         aZombie->mFollowerZombieID[i] = ZombieID(mZombies.DataArrayGetID(mZombies.DataArrayGet(clientFollowerID)));
                     } else {
                         aZombie->mFollowerZombieID[i] = ZombieID::ZOMBIEID_NULL;
@@ -3734,7 +3899,7 @@ void Board::processServerEvent(const BaseEvent *event) {
                         }
                     }
                 } break;
-                case 2: // Zombie placed before StartLevel (currently the boss).
+                case 2: // StartLevel 前放置的僵尸，目前用于僵王。
                 {
                     Zombie *aZombie = nullptr;
                     while (IterateZombies(aZombie)) {
@@ -3750,13 +3915,66 @@ void Board::processServerEvent(const BaseEvent *event) {
 
         } break;
 
+        case EVENT_SERVER_BOARD_MORE_ZOMBIES: {
+            const auto *stageEvent = static_cast<const U16UNI32_Event *>(event);
+            if (!mApp->IsCoopMode() || mApp->mGameScene != SCENE_PLAYING || stageEvent->data1 != uint16_t(mApp->mGameMode) || stageEvent->data2.i32 != mChallenge->mSurvivalStage) {
+                break;
+            }
+            DisplayAdvice("[ADVICE_MORE_ZOMBIES]", MESSAGE_STYLE_BIG_MIDDLE, ADVICE_NONE);
+            mApp->mMusic->FadeOut(500);
+            mApp->PlaySample(Sexy::SOUND_HUGE_WAVE);
+        } break;
+        case EVENT_SERVER_BOARD_INIT_SURVIVAL_STAGE: {
+            const auto *stageEvent = static_cast<const U16UNI32_Event *>(event);
+            const int nextStage = stageEvent->data2.i32;
+            if (!mApp->IsCoopMode() || stageEvent->data1 != uint16_t(mApp->mGameMode) || nextStage <= mChallenge->mSurvivalStage) {
+                break;
+            }
+            // 主机的 CheckForGameEnd 会在 InitSurvivalStage 前递增此值。
+            // 客户端只应用一次主机结果，不再执行本地的轮次结算逻辑。
+            mChallenge->mSurvivalStage = nextStage;
+            InitSurvivalStage_Origin();
+        } break;
+        case EVENT_SERVER_BOARD_PROGRESS_METER: {
+            const auto *aEvent = static_cast<const U8U8U16_Event *>(event);
+            mProgressMeterWidth = aEvent->data1;
+            mCurrentWave = aEvent->data2;
+            mFlagRaiseCounter = aEvent->data3;
+        } break;
+        case EVENT_SERVER_BOARD_ZOMBIE_WAVES: {
+            const auto *wavesEvent = static_cast<const U8U8x100_Event *>(event);
+            mNumWaves = wavesEvent->data1;
+            for (int type = 0; type < 100; ++type) {
+                mZombieAllowed[type] = wavesEvent->data2[type] != 0;
+            }
+            mZombieWavesReady = mNumWaves == 0;
+        } break;
+        case EVENT_SERVER_BOARD_ZOMBIE_WAVE: {
+            const auto *waveEvent = static_cast<const U8U8x50_Event *>(event);
+            for (int index = 0; index < MAX_ZOMBIES_IN_WAVE; ++index) {
+                const uint8_t type = waveEvent->data2[index];
+                mZombiesInWave[waveEvent->data1][index] = type == UINT8_MAX ? ZombieType::ZOMBIE_INVALID : ZombieType(type);
+            }
+            if (waveEvent->data1 + 1 == mNumWaves) {
+                mZombieWavesReady = true;
+                if (mCutScene != nullptr && !mCutScene->mPlacedZombies) {
+                    mCutScene->mPreloaded = false;
+                }
+            }
+        } break;
         case EVENT_SERVER_BOARD_START_LEVEL: {
+            for (int &aCooldown : mButterGloveCooldownCounter) {
+                aCooldown = 0;
+            }
             // 与主机端同步置0
             mMainCounter = 0;
-            serverPlantIDMap.clear();
-            serverZombieIDMap.clear();
-            serverCoinIDMap.clear();
-            serverGridItemIDMap.clear();
+            // 重新选卡时保留当前棋盘，以及存活的对象和对应 ID。
+            if (!mApp->IsCoopMode() || mChallenge->mSurvivalStage == 0) {
+                serverPlantIDMap.clear();
+                serverZombieIDMap.clear();
+                serverCoinIDMap.clear();
+                serverGridItemIDMap.clear();
+            }
 
         } break;
         case EVENT_SERVER_BOARD_GAMEOVER_EXIT: {
@@ -3769,7 +3987,7 @@ void Board::processServerEvent(const BaseEvent *event) {
             LawnApp *aApp = mApp;
             const GameMode aGameMode = GameMode(retryEvent->data);
             aApp->RetryOnlineGame(aGameMode);
-            // Retry replaces the board, so do not access this object afterwards.
+            // 再次尝试会替换棋盘，此后不能继续访问当前对象。
             return;
         }
         case EVENT_SERVER_BOARD_CONCEDE: {
@@ -4086,7 +4304,18 @@ static void CheatSetZombieSpawn(Board *theBoard, const bool (&theZombiesToSpawn)
 
 
 void Board::Update() {
+    if (netplay::IsSynchronizingSaveGame()) {
+        return;
+    }
     isMainMenu = false;
+
+    if (!mPaused && mApp->mGameScene == SCENE_PLAYING) {
+        for (int &aCooldown : mButterGloveCooldownCounter) {
+            if (aCooldown > 0) {
+                --aCooldown;
+            }
+        }
+    }
 
     if (UsesOnlineCoopTools()) {
         for (int player = 0; player < 2; ++player) {
@@ -4103,7 +4332,9 @@ void Board::Update() {
 
     if (!UsesOnlineCoopTools() && requestDrawButterInCursor) {
         Zombie *aZombieUnderButter = ZombieHitTest(mGamepadControls[1]->mCursorPositionX, mGamepadControls[1]->mCursorPositionY, 1);
-        if (aZombieUnderButter != nullptr) {
+        if (mApp->mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS_HARD) {
+            ApplyButterFromGlove(aZombieUnderButter, 1);
+        } else if (aZombieUnderButter != nullptr) {
             aZombieUnderButter->AddButter();
         }
     }
@@ -4454,6 +4685,26 @@ void Board::SpawnZombieWave() {
     old_Board_SpawnZombieWave(this);
 }
 
+void Board::UpdateProgressMeter() {
+    if (mApp->IsCoopMode() && IsRemoteClientOrViewer()) {
+        // 客户端只播放旗帜升起动画，进度和波次由主机同步，不能用本地出怪计时器重新计算。
+        if (mFlagRaiseCounter > 0) {
+            mFlagRaiseCounter--;
+        }
+        return;
+    }
+
+    old_Board_UpdateProgressMeter(this);
+
+    if (mApp->IsCoopMode() && IsRemoteServer() && (mProgressMeterWidth != gSyncedProgressMeterWidth || mCurrentWave != gSyncedProgressMeterWave)) {
+        // 仅在进度或波次变化时发送，旗帜动画计时不需要逐帧同步。
+        U8U8U16_Event aEvent = {{EventType::EVENT_SERVER_BOARD_PROGRESS_METER}, uint8_t(mProgressMeterWidth), uint8_t(mCurrentWave), uint16_t(mFlagRaiseCounter)};
+        netplay::PutEvent(aEvent);
+        gSyncedProgressMeterWidth = mProgressMeterWidth;
+        gSyncedProgressMeterWave = mCurrentWave;
+    }
+}
+
 void Board::DrawProgressMeter(Sexy::Graphics *g, int theX, int theY) {
     if (gIsReplayMode) {
         // 先画上面的空进度条
@@ -4547,10 +4798,12 @@ void Board::DrawHammerButton(Sexy::Graphics *g, LawnApp *theApp) {
 
 void Board::DrawButterButton(Sexy::Graphics *g, LawnApp *theApp) {
     if (!theApp->IsCoopMode()) {
-        if (!theApp->IsAdventureMode())
+        if (!theApp->IsAdventureMode()) {
             return;
-        if (theApp->mSecondPlayerGamepadIndex == -1)
+        }
+        if (theApp->mSecondPlayerGamepadIndex == -1) {
             return;
+        }
     }
     float tmp = g->mTransY;
     Rect rect = GetButterButtonRect();
@@ -4561,8 +4814,24 @@ void Board::DrawButterButton(Sexy::Graphics *g, LawnApp *theApp) {
         g->SetColor(color);
     }
     // 实现拿着黄油的时候不在栏内绘制黄油
-    if (UsesOnlineCoopTools() || !requestDrawButterInCursor) {
+    // 联机显示本机所操控玩家的冷却；本地触控手套仍由 P2 使用。
+    int aPlayerIndex = 1;
+    if (UsesOnlineCoopTools()) {
+        const int aLocalGamepadIndex = IsRemoteClientOrViewer() ? 1 : 0;
+        aPlayerIndex = mGamepadControls[0]->mGamepadIndex == aLocalGamepadIndex ? 0 : 1;
+    }
+    const int aCooldown = mButterGloveCooldownCounter[aPlayerIndex];
+    const bool aCoolingDown = theApp->mGameMode == GameMode::GAMEMODE_TWO_PLAYER_COOP_BOSS_HARD && aCooldown > 0;
+    if (UsesOnlineCoopTools() || !requestDrawButterInCursor || aCoolingDown) {
         g->DrawImage(Sexy::IMAGE_BUTTER_ICON, rect.mX - 7, rect.mY - 3);
+    }
+    if (aCoolingDown) {
+        // 与卡槽一样，顶部的暗色遮罩随冷却逐渐缩短。
+        const Color aOldColor = g->GetColor();
+        const int aDarkHeight = (rect.mHeight * aCooldown + kButterGloveCooldown - 1) / kButterGloveCooldown;
+        g->SetColor(Color(0, 0, 0, 128));
+        g->FillRect(Rect(rect.mX, rect.mY, rect.mWidth, aDarkHeight));
+        g->SetColor(aOldColor);
     }
     if (gKeyboardMode) {
         g->DrawImageCel(Sexy::IMAGE_HELP_BUTTONS, rect.mX + 36, rect.mY + 40, 2);
@@ -4655,7 +4924,7 @@ void Board::DrawShovel(Sexy::Graphics *g) {
 void Board::Draw(Sexy::Graphics *g) {
     old_Board_Draw(this, g);
 
-    if (mApp->IsVSMode()) {
+    if (mApp->IsVSMode() || mApp->IsCoopMode()) {
         Color aColor = Color(0, 205, 0, 255);
 
         if (gIsReplayMode) {
@@ -4912,6 +5181,8 @@ void Board::PutZombieInWave(ZombieType theZombieType, int theWaveNumber, ZombieP
 }
 
 void Board::PickZombieWaves() {
+    mZombieWavesReady = !(mApp->IsCoopMode() && IsOnlineModeActive() && IsRemoteClientOrViewer());
+
     // 有问题，在111和115里，冒险中锤僵尸的mNumWaves从8变6了
     if (mApp->mGameMode == GameMode::GAMEMODE_CHALLENGE_BUTTERED_POPCORN && !IsLevelDataLoaded()) {
         mNumWaves = 20;
@@ -4972,6 +5243,25 @@ void Board::PickZombieWaves() {
     }
 
     old_Board_PickZombieWaves(this);
+
+    if (mApp->IsCoopMode() && IsRemoteServer()) {
+        static_assert(MAX_ZOMBIE_WAVES <= UINT8_MAX);
+        static_assert(ZombieType::EXTENDED_NUM_ZOMBIE_TYPES < UINT8_MAX); // '<' for ZombieType::ZOMBIE_INVALID
+
+        U8U8x100_Event wavesEvent = {{EVENT_SERVER_BOARD_ZOMBIE_WAVES}, uint8_t(mNumWaves)};
+        for (int type = 0; type < 100; ++type) {
+            wavesEvent.data2[type] = mZombieAllowed[type];
+        }
+        netplay::PutEvent(wavesEvent);
+
+        for (int wave = 0; wave < mNumWaves; ++wave) {
+            U8U8x50_Event waveEvent = {{EVENT_SERVER_BOARD_ZOMBIE_WAVE}, uint8_t(wave)};
+            for (int index = 0; index < MAX_ZOMBIES_IN_WAVE; ++index) {
+                waveEvent.data2[index] = uint8_t(mZombiesInWave[wave][index]);
+            }
+            netplay::PutEvent(waveEvent);
+        }
+    }
 }
 
 ZombieType Board::PickZombieType(int theZombiePoints, int theWaveIndex, ZombiePicker *theZombiePicker) {
@@ -5097,6 +5387,9 @@ void Board::MouseMove(int x, int y) {
 }
 
 void Board::MouseDownWithPlant(int x, int y, int theClickCount, int thePlayerIndex) {
+    if (netplay::IsSynchronizingSaveGame()) {
+        return;
+    }
     // 右击鼠标：放下卡牌
     if (theClickCount < 0) {
         RefreshSeedPacketFromCursor(thePlayerIndex);
@@ -5319,6 +5612,11 @@ void Board::MouseDownWithPlant(int x, int y, int theClickCount, int thePlayerInd
             } else {
                 aPlant->mWakeUpCounter = aWakeUpCounter;
             }
+            if (IsRemoteServer() && aPlant->mSeedType == SeedType::SEED_GLOOMSHROOM && (aIsAwake || aWakeUpCounter > 0)) {
+                // 必须在 PLANT_ADD 建立客户端 ID 映射后，同步升级继承的最终状态。
+                U16U16U8_Event sleepEvent = {{EventType::EVENT_SERVER_BOARD_PLANT_SLEEP_STATE}, uint16_t(mPlants.DataArrayGetID(aPlant)), uint16_t(aPlant->mWakeUpCounter), uint8_t(aPlant->mIsAsleep)};
+                netplay::PutEvent(sleepEvent);
+            }
         }
         aSeedBank->mSeedPackets[aGamepad->mSelectedSeedIndex].Deactivate();
         aSeedBank->mSeedPackets[aGamepad->mSelectedSeedIndex].WasPlanted(thePlayerIndex);
@@ -5526,7 +5824,20 @@ void Board::ClientMouseUpLocal(int x, int y) {
 
 // 触控落下手指在此处理
 void Board::MouseDown(int x, int y, int theClickCount) {
+    if (netplay::IsSynchronizingSaveGame()) {
+        return;
+    }
     if (gIsServerModeSpectator || gIsReplayMode) {
+        return;
+    }
+
+    gLocalLawnViewTouch = false;
+    if (SeedChooserScreen *chooser = GetOnlineCoopLawnView(this)) {
+        // 查看草坪属于本机操作，此次触摸应完全在本地处理。
+        gLocalLawnViewTouch = true;
+        if (chooser->CancelLawnView()) {
+            chooser->RebuildHelpbar();
+        }
         return;
     }
 
@@ -5584,7 +5895,7 @@ void Board::__MouseDown(int x, int y, int theClickCount) {
     // yy = y;
     // LOGD("%d %d",x,y);
     if (gKeyboardMode) {
-        patchlist::autoPickupSeedPacketDisable.Modify();
+        GetPatchList().autoPickupSeedPacketDisable.Modify();
     }
     gKeyboardMode = false;
     SeedBank *aSeedBank = mGamepadControls[0]->GetSeedBank();
@@ -5789,7 +6100,7 @@ void Board::__MouseDown(int x, int y, int theClickCount) {
         gPlayerIndex = mGamepadControls[0]->mGamepadIndex == 0 ? TouchPlayerIndex::TOUCHPLAYER_PLAYER1 : TouchPlayerIndex::TOUCHPLAYER_PLAYER2;
     } else if (aGameMode == GameMode::GAMEMODE_MP_VS) {
         gPlayerIndex = PixelToGridX(x, y) > 5 ? TouchPlayerIndex::TOUCHPLAYER_PLAYER2 : TouchPlayerIndex::TOUCHPLAYER_PLAYER1;
-    } else if (aGameMode >= GameMode::GAMEMODE_TWO_PLAYER_COOP_DAY && aGameMode <= GameMode::GAMEMODE_TWO_PLAYER_COOP_ENDLESS) {
+    } else if (mApp->IsCoopMode()) {
         gPlayerIndex = x > 400 ? TouchPlayerIndex::TOUCHPLAYER_PLAYER2 : TouchPlayerIndex::TOUCHPLAYER_PLAYER1;
     } else {
         gPlayerIndex = TouchPlayerIndex::TOUCHPLAYER_PLAYER1;
@@ -5954,7 +6265,13 @@ void Board::__MouseDown(int x, int y, int theClickCount) {
 }
 
 void Board::MouseDrag(int x, int y) {
+    if (netplay::IsSynchronizingSaveGame()) {
+        return;
+    }
     if (gIsServerModeSpectator || gIsReplayMode) {
+        return;
+    }
+    if (gLocalLawnViewTouch || GetOnlineCoopLawnView(this) != nullptr) {
         return;
     }
     // Drag函数仅仅负责移动光标即可
@@ -5995,7 +6312,7 @@ void Board::__MouseDrag(int x, int y) {
     bool isCobCannonSelected_2P = mGamepadControls[1]->mIsCobCannonSelected;
     BaseGamepadControls::MovementState mGameState = mGamepadControls[0]->mGamepadState;
     GameMode mGameMode = mApp->mGameMode;
-    bool isTwoSeedBankMode = (mGameMode == GameMode::GAMEMODE_MP_VS || (mGameMode >= GameMode::GAMEMODE_TWO_PLAYER_COOP_DAY && mGameMode <= GameMode::GAMEMODE_TWO_PLAYER_COOP_ENDLESS));
+    bool isTwoSeedBankMode = (mGameMode == GameMode::GAMEMODE_MP_VS || mApp->IsCoopMode());
     int seedBankHeight = mApp->IsChallengeWithoutSeedBank() ? 87 : seedBank->mY + seedBank->mHeight;
 
     if (gTouchState == TouchState::TOUCHSTATE_SEED_BANK && mApp->IsVSMode()) {
@@ -6148,7 +6465,17 @@ void Board::__MouseDrag(int x, int y) {
 }
 
 void Board::MouseUp(int x, int y, int theClickCount) {
+    if (netplay::IsSynchronizingSaveGame()) {
+        return;
+    }
     if (gIsServerModeSpectator || gIsReplayMode) {
+        return;
+    }
+    if (gLocalLawnViewTouch || GetOnlineCoopLawnView(this) != nullptr) {
+        gLocalLawnViewTouch = false;
+        if (IsRemoteClient()) {
+            ClientMouseUpLocal(x, y);
+        }
         return;
     }
     if (!IsRemoteClient() && !IsRemoteServer()) {
@@ -6277,6 +6604,8 @@ TouchState gTouchStateSecond = TouchState::TOUCHSTATE_NONE;
 } // namespace
 
 void Board::MouseDownSecond(int x, int y, int theClickCount) {
+    if (netplay::IsSynchronizingSaveGame())
+        return;
     if (HandleCoopToolTouch(mGamepadControls[1]->mGamepadIndex == 1 ? 1 : 0, x, y, CoopToolTouch::Down)) {
         gPlayerIndexSecond = TouchPlayerIndex::TOUCHPLAYER_NONE;
         gTouchStateSecond = TouchState::TOUCHSTATE_NONE;
@@ -6289,7 +6618,7 @@ void Board::MouseDownSecond(int x, int y, int theClickCount) {
     gTouchLastXSecond = x;
     gTouchLastYSecond = y;
     if (gKeyboardMode) {
-        patchlist::autoPickupSeedPacketDisable.Modify();
+        GetPatchList().autoPickupSeedPacketDisable.Modify();
     }
     gKeyboardMode = false;
 
@@ -6306,7 +6635,7 @@ void Board::MouseDownSecond(int x, int y, int theClickCount) {
     MouseHitTest(x, y, &hitResult, false);
     GameObjectType aObjectType = hitResult.mObjectType;
     GameMode aGameMode = mApp->mGameMode;
-    bool isTwoSeedBankMode = (aGameMode == GameMode::GAMEMODE_MP_VS || (aGameMode >= GameMode::GAMEMODE_TWO_PLAYER_COOP_DAY && aGameMode <= GameMode::GAMEMODE_TWO_PLAYER_COOP_ENDLESS));
+    bool isTwoSeedBankMode = (aGameMode == GameMode::GAMEMODE_MP_VS || mApp->IsCoopMode());
     GameScenes aGameScene = mApp->mGameScene;
 
     SeedChooserScreen *aSeedChooserScreen = mApp->mSeedChooserScreen;
@@ -6511,7 +6840,7 @@ void Board::MouseDownSecond(int x, int y, int theClickCount) {
         gPlayerIndexSecond = mGamepadControls[1]->mGamepadIndex == 0 ? TouchPlayerIndex::TOUCHPLAYER_PLAYER1 : TouchPlayerIndex::TOUCHPLAYER_PLAYER2;
     } else if (aGameMode == GameMode::GAMEMODE_MP_VS) {
         gPlayerIndexSecond = PixelToGridX(x, y) > 5 ? TouchPlayerIndex::TOUCHPLAYER_PLAYER2 : TouchPlayerIndex::TOUCHPLAYER_PLAYER1;
-    } else if (aGameMode >= GameMode::GAMEMODE_TWO_PLAYER_COOP_DAY && aGameMode <= GameMode::GAMEMODE_TWO_PLAYER_COOP_ENDLESS) {
+    } else if (mApp->IsCoopMode()) {
         gPlayerIndexSecond = x > 400 ? TouchPlayerIndex::TOUCHPLAYER_PLAYER2 : TouchPlayerIndex::TOUCHPLAYER_PLAYER1;
     } else {
         gPlayerIndexSecond = TouchPlayerIndex::TOUCHPLAYER_PLAYER1;
@@ -6682,6 +7011,9 @@ void Board::MouseDownSecond(int x, int y, int theClickCount) {
 
 
 void Board::MouseDragSecond(int x, int y) {
+    if (netplay::IsSynchronizingSaveGame()) {
+        return;
+    }
     if (HandleCoopToolTouch(mGamepadControls[1]->mGamepadIndex == 1 ? 1 : 0, x, y, CoopToolTouch::Drag)) {
         return;
     }
@@ -6695,7 +7027,7 @@ void Board::MouseDragSecond(int x, int y) {
     BaseGamepadControls::MovementState aGameState = mGamepadControls[0]->mGamepadState;
     BaseGamepadControls::MovementState aGameState_2P = mGamepadControls[1]->mGamepadState;
     GameMode aGameMode = mApp->mGameMode;
-    bool isTwoSeedBankMode = (aGameMode == GameMode::GAMEMODE_MP_VS || (aGameMode >= GameMode::GAMEMODE_TWO_PLAYER_COOP_DAY && aGameMode <= GameMode::GAMEMODE_TWO_PLAYER_COOP_ENDLESS));
+    bool isTwoSeedBankMode = (aGameMode == GameMode::GAMEMODE_MP_VS || mApp->IsCoopMode());
     int seedBankHeight = mApp->IsChallengeWithoutSeedBank() ? 87 : aSeedBank->mY + aSeedBank->mHeight;
     if (gTouchStateSecond == TouchState::TOUCHSTATE_SEED_BANK && gTouchLastYSecond < seedBankHeight && y >= seedBankHeight) {
         gTouchStateSecond = TouchState::TOUCHSTATE_BOARD_MOVED_FROM_SEED_BANK;
@@ -6839,6 +7171,9 @@ void Board::MouseDragSecond(int x, int y) {
 
 
 void Board::MouseUpSecond(int x, int y, int theClickCount) {
+    if (netplay::IsSynchronizingSaveGame()) {
+        return;
+    }
     if (HandleCoopToolTouch(mGamepadControls[1]->mGamepadIndex == 1 ? 1 : 0, x, y, CoopToolTouch::Up)) {
         return;
     }
@@ -6929,7 +7264,60 @@ void Board::MouseUpSecond(int x, int y, int theClickCount) {
 }
 
 
+void Board::InitSurvivalStage() {
+    if (mApp->IsCoopMode()) {
+        if (IsRemoteClientOrViewer()) {
+            return;
+        }
+        if (IsRemoteServer()) {
+            U16UNI32_Event event{};
+            event.type = EVENT_SERVER_BOARD_INIT_SURVIVAL_STAGE;
+            event.data1 = uint16_t(mApp->mGameMode);
+            event.data2.i32 = mChallenge->mSurvivalStage;
+            netplay::PutEvent(event);
+        }
+    }
+    InitSurvivalStage_Origin();
+}
+
+void Board::InitSurvivalStage_Origin() {
+    if (mApp->IsCoopMode() && (IsRemoteServer() || IsRemoteClientOrViewer())) {
+        const bool wasPauseSyncFromRemote = gPauseSyncFromRemote;
+        gPauseSyncFromRemote = true;
+        mApp->KillDialog(Dialogs::DIALOG_CONFIRM_IN_GAME_RESTART);
+        mApp->KillNewOptionsDialog();
+        gPauseSyncFromRemote = wasPauseSyncFromRemote;
+        mPaused = false;
+        mNextSurvivalStageCounter = 0;
+        mBoardFadeOutCounter = -1;
+        mApp->KillSeedChooserScreen();
+    }
+
+    old_Board_InitSurvivalStage(this);
+}
+
+void Board::MapLoadedNetplayIds() {
+    // SyncDataArray 会在两端按存档原样恢复每个槽位及其 ID。
+    // 按 ID 而不是坐标建立映射，因为叠种植物和多个僵尸可能位于同一格。
+    const auto mapArray = [](auto &array, IdMap &ids) {
+        ids.clear();
+        for (uint32_t slot = 0; slot < array.mMaxUsedCount; ++slot) {
+            const uint32_t id = array.mBlock[slot].mID;
+            if ((id >> DATA_ARRAY_KEY_SHIFT) != 0) {
+                ids[uint16_t(id)] = uint16_t(id);
+            }
+        }
+    };
+    mapArray(mPlants, serverPlantIDMap);
+    mapArray(mZombies, serverZombieIDMap);
+    mapArray(mCoins, serverCoinIDMap);
+    mapArray(mGridItems, serverGridItemIDMap);
+}
+
 void Board::StartLevel() {
+    for (int &aCooldown : mButterGloveCooldownCounter) {
+        aCooldown = 0;
+    }
     if (mApp->IsVSMode()) {
         const bool isGlobalBpFirstRound =
             VSSetupAddonWidget::msGlobalBpMode != VSSetupAddonWidget::GLOBALBP_CLOSED && VSSetupAddonWidget::msGlobalBpWins[0] == 0 && VSSetupAddonWidget::msGlobalBpWins[1] == 0;
@@ -6946,8 +7334,8 @@ void Board::StartLevel() {
 
         BaseEvent nineShortDataEvent = {EventType::EVENT_SERVER_BOARD_START_LEVEL};
         netplay::PutEvent(nineShortDataEvent);
-        // The boss is created during the intro, so it has no playing-scene ZOMBIE_ADD event.
-        // Rebind its ID after START_LEVEL clears the client map and before any boss skill event.
+        // 僵王在开场阶段创建，不会发送正式游戏阶段的 ZOMBIE_ADD 事件。
+        // START_LEVEL 清空客户端映射后，应在僵王技能事件之前重新绑定其 ID。
         Zombie *aBoss = GetBossZombie();
         if (aBoss != nullptr) {
             U16UNI32_Event eventSync{};
@@ -7062,6 +7450,9 @@ void Board::UpdateButtons() {
 
 
 void Board::ButtonDepress(int theId) {
+    if (netplay::IsSynchronizingSaveGame()) {
+        return;
+    }
     if (theId == 1000) {
         if (gIsServerModeSpectator && mBoardFadeOutCounter > 0) {
             return; // 修复观战在 FadeOut 界面返回会导致 NewOptionsDialog 卡死
@@ -7178,7 +7569,16 @@ bool Board::GrantAchievement(AchievementType theAchievementId, bool theIsShow) {
 }
 
 void Board::FadeOutLevel() {
+    const bool notifyMoreZombies = IsRemoteServer() && mApp->IsCoopMode() && mApp->mGameScene == SCENE_PLAYING && IsSurvivalStageWithRepick();
     old_Board_FadeOutLevel(this);
+
+    if (notifyMoreZombies) {
+        U16UNI32_Event event{};
+        event.type = EVENT_SERVER_BOARD_MORE_ZOMBIES;
+        event.data1 = uint16_t(mApp->mGameMode);
+        event.data2.i32 = mChallenge->mSurvivalStage;
+        netplay::PutEvent(event);
+    }
 
     if (mApp->IsSurvivalMode() && mChallenge->mSurvivalStage >= 19) {
         GrantAchievement(AchievementType::ACHIEVEMENT_IMMORTAL, true);
@@ -7325,7 +7725,7 @@ void Board::DrawBackdrop(Sexy::Graphics *g) {
         }
         return;
     }
-    if (mGameMode >= GameMode::GAMEMODE_TWO_PLAYER_COOP_DAY && mGameMode <= GameMode::GAMEMODE_TWO_PLAYER_COOP_ENDLESS && mGameMode != GameMode::GAMEMODE_TWO_PLAYER_COOP_BOWLING) {
+    if (mApp->IsCoopMode() && mGameMode != GameMode::GAMEMODE_TWO_PLAYER_COOP_BOWLING) {
         if (IsRemoteServer() || IsRemoteClientOrViewer()) {
             return;
         }
@@ -8312,8 +8712,8 @@ bool Board::TakeSunMoney(int theAmount, int thePlayer) {
     bool result = old_Board_TakeSunMoney(this, theAmount, thePlayer);
     if (IsRemoteServer()) {
         if (mApp->IsCoopMode()) {
-            // Native co-op spending can fall back to the other bank, so sync
-            // both resulting balances rather than just the requested player.
+            // 原版结盟扣除阳光时可能改用另一方的余额，因此需要同步
+            // 两个阳光槽的最终余额，而不只是请求玩家的余额。
             I16I16_Event event = {{EventType::EVENT_SERVER_BOARD_TAKE_SUNMONEY}, int16_t(mSunMoney1), int16_t(mSunMoney2)};
             netplay::PutEvent(event);
         } else {

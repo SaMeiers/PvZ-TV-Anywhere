@@ -34,7 +34,7 @@
 #include <utility>
 #include <vector>
 
-inline constexpr uint32_t NETPLAY_VERSION = 3204;
+inline constexpr uint32_t NETPLAY_VERSION = 3209;
 
 // 联机事件只传输 DataArray ID 的低 16 位；slot/index 0 是合法对象 ID，
 // 因此不能使用游戏内部值为 0 的 PLANTID_NULL / ZOMBIEID_NULL / GRIDITEMID_NULL 作为网络空值。
@@ -106,6 +106,7 @@ enum EventType : uint8_t {
     EVENT_SERVER_BOARD_GAMEPAD_PICKUP_SHOVEL,
     EVENT_SERVER_BOARD_GAMEPAD_SET_TOOL,
     EVENT_SERVER_BOARD_GAMEPAD_USE_SHOVEL,
+    EVENT_SERVER_BOARD_GAMEPAD_PICKUP_COB_CANNON,
 
     EVENT_CLIENT_BOARD_PAUSE,
     EVENT_SERVER_BOARD_PAUSE,
@@ -146,6 +147,9 @@ enum EventType : uint8_t {
     EVENT_SERVER_BOARD_PLANT_WIN, // 植物方通过杀够3只靶子胜利，目前版本由于已同步上级GridItemDie，故不需要同步
     EVENT_SERVER_BOARD_PLANT_IMITATER_MORPH,
     EVENT_SERVER_BOARD_PLANT_BOWLING_SET_ROW,
+    EVENT_SERVER_BOARD_PLANT_COB_CANNON_FIRE,
+    EVENT_SERVER_BOARD_PLANT_COB_CANNON_STATE,
+    EVENT_SERVER_BOARD_PLANT_SLEEP_STATE, // 同步植物醒睡状态及剩余唤醒倒计时。
 
     EVENT_SERVER_BOARD_ZOMBIE_DIE,
     EVENT_SERVER_BOARD_ZOMBIE_MIND_CONTROLLED,
@@ -220,7 +224,7 @@ enum EventType : uint8_t {
     EVENT_SERVER_BOARD_PLAY_SOUND,    // 播放音效
     EVENT_SERVER_BOARD_PLAY_SOUND_SR, // 仅供观战/回放解析的音效同步
 
-    EVENT_SERVER_BOARD_TAKE_SUNMONEY, // I16_Event for VS; I16I16_Event for both co-op sun balances (gain or spending).
+    EVENT_SERVER_BOARD_TAKE_SUNMONEY, // 对战使用 I16_Event；结盟使用 I16I16_Event 同步双方阳光余额（增加或扣除）。
     EVENT_SERVER_BOARD_TAKE_DEATHMONEY,
 
     EVENT_SERVER_BOARD_SEEDPACKET_WASPLANTED,
@@ -235,22 +239,50 @@ enum EventType : uint8_t {
     EVENT_SERVER_BOARD_PLAY_FOLEY,
     EVENT_CLIENT_BOARD_GAMEOVER_EXIT,
     EVENT_SERVER_BOARD_GAMEOVER_EXIT,
+    EVENT_SERVER_BOARD_INIT_SURVIVAL_STAGE,
+    EVENT_SERVER_BOARD_MORE_ZOMBIES,
 
     EVENT_SERVER_BOARD_SEEDBANK_ADDSEED,
 
-    // Local replay only. Never send this event through netplay::PutEvent.
+    EVENT_SERVER_BOARD_ZOMBIE_WAVES,
+    EVENT_SERVER_BOARD_ZOMBIE_WAVE,
+
+    EVENT_SERVER_BOARD_PROGRESS_METER,
+
+    EVENT_SERVER_BOARD_COIN_ADD_SUN,
+    EVENT_SERVER_BOARD_COIN_COLLECT,
+
+    // 仅用于本地回放，不能通过 netplay::PutEvent 发送此事件。
     EVENT_LOCAL_BOARD_ACTION,
 
     NUM_EVENT_BOARD,
     /************************************************************/
     EVENT_CLIENT_VSRESULT_BUTTON_DEPRESS,
     EVENT_SERVER_VSRESULT_BUTTON_DEPRESS,
-    NUM_EVENT_VSRESULT
+    NUM_EVENT_VSRESULT,
+
+    EVENT_SERVER_SAVEGAME_BEGIN,
+    EVENT_SERVER_SAVEGAME_CHUNK,
+    EVENT_SERVER_SAVEGAME_END,
+    EVENT_CLIENT_SAVEGAME_READY,
+    EVENT_SERVER_SAVEGAME_RESUME,
+    EVENT_SERVER_SAVEGAME_NEW_GAME,
+    EVENT_SERVER_SAVEGAME_ABORT
 };
 
 struct BaseEvent {
     EventType type;
     uint8_t size;
+};
+
+struct U8U8x100_Event : BaseEvent {
+    uint8_t data1;
+    uint8_t data2[100];
+};
+
+struct U8U8x50_Event : BaseEvent {
+    uint8_t data1;
+    uint8_t data2[50];
 };
 
 union Union32Bit {
@@ -292,6 +324,20 @@ struct U16_Event : BaseEvent {
     uint16_t data;
 };
 
+struct U8U16_Event : BaseEvent {
+    uint8_t data1;
+    uint16_t data2;
+};
+
+struct U16I16I16U8U8I16_Event : BaseEvent {
+    uint16_t data1;
+    int16_t data2;
+    int16_t data3;
+    uint8_t data4;
+    uint8_t data5;
+    int16_t data6;
+};
+
 struct I16_Event : BaseEvent {
     int16_t data;
 };
@@ -299,6 +345,12 @@ struct I16_Event : BaseEvent {
 struct U8U8_Event : BaseEvent {
     uint8_t data1;
     uint8_t data2;
+};
+
+// 使用固定大小的传输分块，让存档文件沿用现有的事件封装格式。
+struct U16U8x240_Event : BaseEvent {
+    uint16_t count;
+    uint8_t data[240];
 };
 
 struct U8x3_Event : BaseEvent {
@@ -417,8 +469,8 @@ struct U16U16U16UNI32UNI32_Event : BaseEvent {
     Union32Bit data5;
 };
 
-struct U8x5U16UNI32x2_Event : BaseEvent {
-    uint8_t data1[5];
+struct U8x4U16UNI32x2_Event : BaseEvent {
+    uint8_t data1[4];
     uint16_t data2;
     Union32Bit data3[2];
 };
@@ -491,7 +543,7 @@ inline int gTcpServerSocket = -1;
 inline bool gTcpConnecting = false; // 正在尝试连接
 inline bool gTcpConnected = false;
 
-// Suppress outgoing pause events while applying remote state or restarting a match.
+// 应用远端状态或重新开始对局时，禁止发送暂停事件。
 inline bool gPauseSyncFromRemote = false;
 inline std::string gMetricsServerIp;
 inline int gMetricsServerPort = 0;
@@ -559,6 +611,7 @@ void PutEvent(T &&event) {
 
 bool FlushSendBuffer(int socket);
 void ClearSendBuffer() noexcept;
+bool HasPendingSendData() noexcept;
 
 std::size_t ParseEventSize(const std::byte *data);
 

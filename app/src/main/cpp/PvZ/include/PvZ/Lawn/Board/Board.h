@@ -410,9 +410,12 @@ public:
     ShovelRedirectWidget *mShovelWidget = nullptr;
     ReplayControlsWidget *mReplayControlsWidget = nullptr;
     bool mJacksonDanceMode = false;
+    bool mZombieWavesReady = true;           // 位于原版对象及存档同步的数据区之外。
+    int mButterGloveCooldownCounter[2] = {}; // 困难僵王的黄油手套，双方分别冷却。
 
     Projectile *AddProjectile(int theX, int theY, int theRenderOrder, int theRow, ProjectileType theProjectileType);
     void SpawnTeleportEffect(float theX, float theY, int theRow);
+    void SyncCobCannonSelection(int thePlayerIndex);
     void TeleportZombie(Zombie *theZombie, float theDestX);
     bool TeleportPlant(Plant *thePlant, int theDestGridX, int theDestGridY);
     int PixelToGridX(int theX, int theY) {
@@ -659,8 +662,11 @@ public:
     ~Board() = delete;
 
     void InitLevel();
+    void InitSurvivalStage();
+    void InitSurvivalStage_Origin();
     void SetGrids();
     void StartLevel();
+    void MapLoadedNetplayIds();
     void Update();
     void AddedToManager(Sexy::WidgetManager *theWidgetManager);
     void RemovedFromManager(Sexy::WidgetManager *theWidgetManager);
@@ -688,6 +694,7 @@ public:
     int GetGraveStonesCount();
     void SpawnZombiesFromGraves();
     void SpawnZombieWave();
+    void UpdateProgressMeter();
     void DrawProgressMeter(Sexy::Graphics *g, int theX, int theY);
     int GetNumWavesPerFlag() const;
     bool IsLevelDataLoaded();
@@ -740,6 +747,7 @@ public:
     bool IsButterInCursor(int thePlayerIndex) const;
     void SetCoopTool(int thePlayerIndex, GameObjectType theTool);
     void ApplyCoopButter(int thePlayerIndex);
+    void ApplyButterFromGlove(Zombie *theZombie, int thePlayerIndex);
     enum class CoopToolTouch { Down, Drag, Up };
     bool HandleCoopToolTouch(int thePlayerIndex, int x, int y, CoopToolTouch thePhase);
     int PixelToGridXKeepOnBoard(int theX, int theY);
@@ -940,6 +948,8 @@ inline bool (*old_Board_IsFlagWave)(Board *board, int currentWave);
 
 inline void (*old_Board_SpawnZombieWave)(Board *board);
 
+inline void (*old_Board_UpdateProgressMeter)(Board *board);
+
 inline void (*old_Board_DrawProgressMeter)(Board *board, Sexy::Graphics *graphics, int a3, int a4);
 
 inline bool (*old_Board_IsLevelDataLoaded)(Board *board);
@@ -961,6 +971,7 @@ inline void (*old_Board_AddedToManager)(Board *, Sexy::WidgetManager *);
 inline void (*old_Board_RemovedFromManager)(Board *, Sexy::WidgetManager *);
 
 inline void (*old_Board_InitLevel)(Board *board);
+inline void (*old_Board_InitSurvivalStage)(Board *board);
 
 inline void (*old_Board_ButtonDepress)(Board *board, int id);
 

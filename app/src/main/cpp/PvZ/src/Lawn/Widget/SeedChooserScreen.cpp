@@ -1847,13 +1847,13 @@ void SeedChooserScreen::_constructor(bool theIsZombieChooser) {
         }
     } else {
         if (mStoreButton) {
-            if (!mApp->CanShowStore()) { // 去除在未解锁商店时商店按钮
+            if (!mApp->CanShowStore() || (mApp->IsCoopMode() && IsOnlineModeActive())) { // 未解锁或联机结盟时禁用商店
                 mStoreButton->mDisabled = true;
                 mStoreButton->mBtnNoDraw = true;
             }
         }
         if (mAlmanacButton) {
-            if (!mApp->CanShowAlmanac()) { // 去除在未解锁图鉴时的图鉴按钮
+            if (!mApp->CanShowAlmanac() || (mApp->IsCoopMode() && IsOnlineModeActive())) { // 未解锁或联机结盟时禁用图鉴
                 mAlmanacButton->mDisabled = true;
                 mAlmanacButton->mBtnNoDraw = true;
             }
@@ -2264,6 +2264,9 @@ void SeedChooserScreen::EnableStartButton(int theIsEnabled) {
 }
 
 void SeedChooserScreen::OnStartButton() {
+    if (mApp->IsCoopMode() && IsOnlineModeActive() && IsRemoteClientOrViewer()) {
+        return;
+    }
     if (mApp->mGameMode == GameMode::GAMEMODE_MP_VS) {
         // 如果是对战模式，则直接关闭种子选择界面。用于修复对战模式选卡完毕后点击开始按钮导致的闪退
         CloseSeedChooser();
@@ -2274,6 +2277,19 @@ void SeedChooserScreen::OnStartButton() {
 }
 
 void SeedChooserScreen::CloseSeedChooser() {
+    if (mChooseState == SeedChooserState::CHOOSE_VIEW_LAWN) {
+        // 直接关闭会跳过 UpdateViewLawn 的返回动画和提示清理，需要在此处理。
+        mChooseState = SeedChooserState::CHOOSE_NORMAL;
+        mViewLawnTime = 0;
+        if (mBoard->mHelpIndex == AdviceType::ADVICE_SURVIVE_FLAGS) {
+            mBoard->ClearAdviceImmediately();
+        }
+    }
+    if (mApp->IsCoopMode() && IsRemoteServer()) {
+        // 主机确认所有重新选卡的警告后，才通知其他联机端。
+        U8U8_Event event = {{EventType::EVENT_SERVER_SEEDCHOOSER_BUTTON_DEPRESS}, uint8_t(SeedChooserScreen_Start), 0};
+        netplay::PutEvent(event);
+    }
     auto syncBankPackets = [&](SeedBank *seedBank, int chosenPlayerIndex) {
         if (seedBank == nullptr) {
             return;
@@ -2792,7 +2808,13 @@ void SeedChooserScreen::ProcessCoopServerEvent(const BaseEvent *event) {
 
     if (event->type == EventType::EVENT_SERVER_SEEDCHOOSER_BUTTON_DEPRESS) {
         const auto &buttonEvent = *static_cast<const U8U8_Event *>(event);
-        if ((buttonEvent.data1 == SeedChooserScreen_Start || buttonEvent.data1 == SeedChooserScreen_BackToModeSelect) && buttonEvent.data2 == 0) {
+        if (buttonEvent.data1 == SeedChooserScreen_Start && buttonEvent.data2 == 0) {
+            // 主机已经完成卡片校验，客户端不能再弹出本地模态警告。
+            for (int index = 0; index < GetSeedStorageCount(); ++index) {
+                LandFlyingSeed(GetChosenSeed(index));
+            }
+            CloseSeedChooser();
+        } else if (buttonEvent.data1 == SeedChooserScreen_BackToModeSelect && buttonEvent.data2 == 0) {
             ButtonDepress_Origin(buttonEvent.data1);
         }
     }
@@ -2820,7 +2842,7 @@ void SeedChooserScreen::ClickedSeedInChooser(ChosenSeed &theChosenSeed, int theP
         return;
     }
 
-    // Keep local chosen-seed payload coherent with index->type mapping.
+    // 保持本地已选卡片数据与索引到植物类型的映射一致。
     selectedSeed.mSeedType = selectedSeedType;
 
     if (mApp->IsCoopMode() && IsOnlineModeActive()) {
@@ -3883,8 +3905,6 @@ void SeedChooserScreen::ButtonDepress(int theId) {
         if (IsRemoteClient()) {
             return;
         }
-        U8U8_Event event = {{EventType::EVENT_SERVER_SEEDCHOOSER_BUTTON_DEPRESS}, uint8_t(theId), 0};
-        netplay::PutEvent(event);
     }
 
     if (mApp->IsVSMode()) {
@@ -3901,6 +3921,9 @@ void SeedChooserScreen::ButtonDepress(int theId) {
 }
 
 void SeedChooserScreen::ButtonDepress_Origin(int theId) {
+    if (mApp->IsCoopMode() && IsOnlineModeActive() && (theId == SeedChooserScreen_Store || theId == SeedChooserScreen_Almanac)) {
+        return;
+    }
     if (mApp->IsCoopMode() && theId == SeedChooserScreen_BackToModeSelect) {
         mApp->ReturnToModeSelect();
         return;
@@ -4242,6 +4265,14 @@ void SeedChooserScreen::MouseDown(int x, int y, int theClickCount) {
     }
     if (mApp->GetDialogCount() != 0 || mImitaterDialog != nullptr) {
         return; // 存在模仿者选框、不建议种子选框等时
+    }
+    if (mApp->IsCoopMode() && IsOnlineModeActive() && mChooseState == SeedChooserState::CHOOSE_VIEW_LAWN) {
+        gSeedChooserTouchState = SeedChooserTouchState::SEEDCHOOSER_TOUCHSTATE_NONE;
+        gSeedChooserTouchOwner = nullptr;
+        if (CancelLawnView()) {
+            RebuildHelpbar();
+        }
+        return;
     }
     NormalizeLocalPoint(this, x, y);
     if (x < 0 || x >= mWidth || y < 0 || y >= mHeight) {
